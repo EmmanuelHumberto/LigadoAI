@@ -101,7 +101,12 @@ if (isMultiTenantEnabled()) {
   })
 } else {
   app.use('/v1/*', async (c, next) => {
-    if (c.req.path.startsWith('/v1/auth/')) return next()
+    if (
+      c.req.path.startsWith('/v1/auth/') ||
+      c.req.path.startsWith('/v1/api/')
+    ) {
+      return next()
+    }
     return apiKeyAuth(c, next)
   })
 }

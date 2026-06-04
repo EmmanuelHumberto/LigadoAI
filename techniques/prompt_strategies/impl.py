@@ -46,10 +46,6 @@ class _Direct:
         self.prompt_path: str = str(knobs.get("prompt", "../prompts/system.md"))
         self.max_tokens: int = int(knobs.get("max_tokens", 2048))
         self.temperature: float = float(knobs.get("temperature", 0.3))
-        # P3.4 — cap on tool-use iterations to bound runaway loops.
-        # The model can call tools and read results up to this many
-        # times in a single /run; on the (N+1)th iteration we force
-        # an end-turn by passing tool_choice=none / no tools=.
         self.max_tool_iterations: int = int(knobs.get("max_tool_iterations", 8))
 
     def execute(self, context: Context) -> Context:
@@ -76,9 +72,6 @@ class _Direct:
             )
             return context
 
-        # P3.4 — discover the agent's MCP tools (cached). Empty list when
-        # the agent has no MCP servers configured, which keeps the loop
-        # behavior identical to pre-P3.4.
         tools: list[Any] = []
         try:
             from runtime.mcp.client import list_tools_for_agent
@@ -162,17 +155,6 @@ def _run_anthropic_loop(
     agent_id: str,
     max_iterations: int,
 ) -> tuple[str, Optional[dict], list[dict[str, Any]]]:
-    """Anthropic tool-use loop. Returns (final_text, summed_usage, tool_calls).
-
-    Each iteration:
-      1. Send messages + tools to ``messages.create``
-      2. If response has ``tool_use`` blocks → invoke each via MCP and
-         append a ``tool_result`` message; loop.
-      3. If response has only ``text`` blocks → that's the final reply.
-
-    Stops on ``stop_reason='end_turn'`` or after ``max_iterations``.
-    The tool catalog comes from runtime.mcp.client.list_tools_for_agent.
-    """
     try:
         from anthropic import Anthropic
     except ImportError as e:
@@ -195,8 +177,6 @@ def _run_anthropic_loop(
             "system": system,
             "messages": messages,
         }
-        # Force end-turn on the budget iteration: drop tools so the
-        # model can't request another one and we end on text.
         if anthropic_tools and it < max_iterations:
             kwargs["tools"] = anthropic_tools
 
@@ -213,9 +193,6 @@ def _run_anthropic_loop(
             if btype == "tool_use":
                 tool_use_blocks.append(block)
                 continue
-            # Treat anything with a ``text`` attribute as a text block.
-            # The Anthropic SDK tags blocks with type="text" but test
-            # mocks + older block shapes may omit it; we accept both.
             t = getattr(block, "text", None)
             if isinstance(t, str) and t:
                 text_parts.append(t)
@@ -224,11 +201,8 @@ def _run_anthropic_loop(
             final_text = "".join(text_parts)
             break
 
-        # Append the assistant's message verbatim (per Anthropic's tool
-        # protocol — the next user turn references tool_use_ids).
         messages.append({"role": "assistant", "content": resp.content})
 
-        # Run each tool, gather tool_result blocks.
         result_blocks: list[dict[str, Any]] = []
         for tu in tool_use_blocks:
             qname = getattr(tu, "name", "")
@@ -277,12 +251,6 @@ def _run_openai_loop(
     agent_id: str,
     max_iterations: int,
 ) -> tuple[str, Optional[dict], list[dict[str, Any]]]:
-    """OpenAI tool-use loop. Returns (final_text, summed_usage, tool_calls).
-
-    Mirrors the Anthropic loop but uses the function-calling shape:
-    response has ``tool_calls`` on choices[0].message; we append the
-    assistant message + tool messages with matching ``tool_call_id``.
-    """
     try:
         from openai import OpenAI
     except ImportError as e:
@@ -325,14 +293,11 @@ def _run_openai_loop(
         choice = resp.choices[0]
         msg = choice.message
 
-        # OpenAI's tool_calls may be None or empty list.
         calls = getattr(msg, "tool_calls", None) or []
         if not calls:
             final_text = msg.content or ""
             break
 
-        # Append the assistant's tool-call message so subsequent tool
-        # results can reference its tool_call ids.
         messages.append({
             "role": "assistant",
             "content": msg.content or "",
@@ -380,21 +345,31 @@ def _run_openai_loop(
 
 
 def _load_system_prompt(path: str) -> str:
-    """Resolve the prompt path against a few likely roots; fall back to default."""
+    """Resolve the prompt path against a few likely roots; fall back to default.
+    Replaces {{CURRENT_DATE}} and {{CURRENT_TIME}} with the current UTC date/time.
+    """
+    from datetime import datetime, timezone
+
     candidates = [
         Path(path),
         Path("agent/pipeline") / path,
         Path("agent") / path,
         Path.cwd() / path,
     ]
+    prompt = _DEFAULT_SYSTEM
     for p in candidates:
         try:
             resolved = p.resolve()
             if resolved.is_file():
-                return resolved.read_text(encoding="utf-8").strip()
+                prompt = resolved.read_text(encoding="utf-8").strip()
+                break
         except OSError:
             continue
-    return _DEFAULT_SYSTEM
+
+    now = datetime.now(timezone.utc)
+    prompt = prompt.replace("{{CURRENT_DATE}}", now.strftime("%Y-%m-%d"))
+    prompt = prompt.replace("{{CURRENT_TIME}}", now.strftime("%H:%M:%S"))
+    return prompt
 
 
 def _render_user_message(documents: list[Document], request: str) -> str:
@@ -408,25 +383,6 @@ def _render_user_message(documents: list[Document], request: str) -> str:
 
 
 class _ClaudeCode:
-    """``claude_code`` variant — each turn runs in an E2B sandbox via the
-    Claude Code CLI, with the agent's workspace mounted so the per-turn
-    agent can read its own NexAU components (skills, memory, tools).
-
-    Distinct from ``_Direct`` (single ``messages.create`` round trip):
-    here the model gets a real shell + filesystem and can edit its own
-    memory/plan between turns. BYOK is mandatory — no offline marker;
-    if the per-agent Anthropic key isn't set we raise so the operator
-    sees the failure instead of getting a phantom response.
-
-    See [[project_p16_4_ahe_shipped]] for the original strategy design
-    (P16.4 autonomous arm). Knobs:
-
-      - ``timeout``: sandbox lifetime, default 300s. The per-turn agent
-        usually finishes well under this; longer iterations belong in
-        the evolution loop, not a single chat turn.
-      - ``model``: routed via context.routing if absent.
-    """
-
     def __init__(self, knobs: dict[str, Any]) -> None:
         self.timeout_s: int = int(knobs.get("timeout", 300))
 
@@ -439,8 +395,6 @@ class _ClaudeCode:
         agent_id = get_active()
         api_key = get_secret("anthropic", agent_id=agent_id)
         if not api_key:
-            # AHE invariant per [[byok_strict]]: never fall back to a
-            # platform-level key. Generate must fail closed.
             raise RuntimeError(
                 f"claude_code: no Anthropic BYOK for agent {agent_id!r} — "
                 "set the per-agent key before chatting"
@@ -473,29 +427,18 @@ class _ClaudeCode:
                     if kind == "stdout":
                         response_chunks.append(evt.get("data") or "")
                     elif kind == "stderr":
-                        logger.info(
-                            "claude_code stderr: %s", evt.get("data"),
-                        )
+                        logger.info("claude_code stderr: %s", evt.get("data"))
                     elif kind == "error":
-                        logger.warning(
-                            "claude_code sandbox error: %s",
-                            evt.get("detail"),
-                        )
+                        logger.warning("claude_code sandbox error: %s", evt.get("detail"))
                         break
                     elif kind == "done":
                         break
 
-                # Snapshot back: the per-turn agent may have updated
-                # memory/plan or skills based on the turn. Failures
-                # here are logged but not fatal — the response itself
-                # is the contract; workspace evolution is best-effort.
                 try:
                     tar_out = sb.snapshot_workspace_tar()
                     workspace.from_tar_bytes(tar_out)
                 except Exception as exc:
-                    logger.warning(
-                        "claude_code: snapshot back failed: %s", exc,
-                    )
+                    logger.warning("claude_code: snapshot back failed: %s", exc)
         except Exception as exc:
             logger.warning("claude_code: sandbox lifetime failed: %s", exc, exc_info=True)
             raise

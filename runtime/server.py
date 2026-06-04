@@ -4814,6 +4814,7 @@ class AgentSecretsUpdateRequest(BaseModel):
     server picks the canonical env var name per provider."""
     anthropic: Optional[str] = None
     openai: Optional[str] = None
+    deepseek: Optional[str] = None
 
 
 @app.get("/agents/{agent_id}/secrets", response_model=AgentSecretsResponse)

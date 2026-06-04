@@ -17,6 +17,7 @@ shape, so the rerank stage doesn't care which retriever produced a doc.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
@@ -52,13 +53,15 @@ class _StubRetriever:
 
 
 class _DenseRetriever:
-    """Embed the request, top-k against ``corpora/indexed/``."""
+    """Embed the request, top-k against ``corpora/indexed/``.
+    Recarrega o indice automaticamente se o arquivo no disco mudar.
+    """
 
     def __init__(self, knobs: dict[str, Any]) -> None:
         self.k: int = int(knobs.get("k", 8))
         self._embedder: Optional[Any] = None
         self._store: Optional[Any] = None
-        self._store_attempted = False
+        self._store_mtime: float = 0.0
 
     def execute(self, context: Context) -> Context:
         store = self._load_store()
@@ -97,17 +100,26 @@ class _DenseRetriever:
         return context
 
     def _load_store(self):
-        if self._store is not None:
+        # Verifica se o arquivo no disco mudou desde a ultima carga
+        manifest_path = Path("corpora/indexed/manifest.jsonl")
+        try:
+            current_mtime = manifest_path.stat().st_mtime
+        except (OSError, FileNotFoundError):
+            current_mtime = 0.0
+
+        # Se o store ja foi carregado e o arquivo nao mudou, usa cache
+        if self._store is not None and current_mtime <= self._store_mtime:
             return self._store
-        if self._store_attempted:
-            return None
-        self._store_attempted = True
+
+        # Se o store nunca foi carregado ou o arquivo mudou, recarrega
         try:
             from corpora.store import CorpusStore
             self._store = CorpusStore.load()
+            self._store_mtime = current_mtime
         except Exception as e:
             logger.warning("CorpusStore.load failed (%s) — empty retrieve", e)
             self._store = None
+            self._store_mtime = 0.0
         return self._store
 
     def _load_embedder(self):

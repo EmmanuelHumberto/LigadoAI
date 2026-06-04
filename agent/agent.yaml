@@ -1,6 +1,6 @@
 agent:
   version: v0.0.5
-  description: "default harness \u2014 to be molded by usage"
+  description: "default harness — to be molded by usage"
   pipeline:
   - $ref: pipeline/retrieve.yaml
   - $ref: pipeline/rerank.yaml
@@ -10,5 +10,5 @@ agent:
     memory:
       $ref: pipeline/memory.yaml
   budget:
-    max_latency_ms: 4000
+    max_latency_ms: 30000
     max_cost_usd: 0.05
