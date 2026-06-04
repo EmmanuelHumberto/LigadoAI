@@ -49,6 +49,7 @@ logger = logging.getLogger("runtime.agents.secrets")
 PROVIDERS: dict[str, list[str]] = {
     "anthropic": ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"],
     "openai": ["OPENAI_API_KEY"],
+    "deepseek": ["DEEPSEEK_API_KEY"],
 }
 
 KNOWN_PROVIDERS = tuple(PROVIDERS.keys())
@@ -127,7 +128,7 @@ def _parse_dotenv(text: str) -> dict[str, str]:
 def _serialize_dotenv(merged: dict[str, str]) -> str:
     body_lines = [
         "# Agent BYOK secrets — gitignored, never commit.",
-        "# Provider keys: ANTHROPIC_API_KEY, OPENAI_API_KEY.",
+        "# Provider keys: ANTHROPIC_API_KEY, OPENAI_API_KEY, DEEPSEEK_API_KEY.",
         "",
     ]
     for k in sorted(merged.keys()):
@@ -361,4 +362,6 @@ def provider_for_model(model_id: str) -> Optional[str]:
         return "anthropic"
     if m.startswith("gpt") or m.startswith("o1") or m.startswith("o3") or m.startswith("openai"):
         return "openai"
+    if m.startswith("deepseek"):
+        return "deepseek"
     return None

@@ -82,3 +82,12 @@ corpora/ingested/
 
 # Background process logs from `make up`.
 .run/
+.env
+*.backup
+
+traces/
+agent/onboarding_session.json
+
+.run/
+__pycache__/
+*.pyc

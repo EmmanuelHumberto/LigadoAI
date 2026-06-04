@@ -5,6 +5,7 @@ retrieved documents + the user request, and calls whichever provider
 matches the model id picked by the route stage:
 
   - ``claude-*`` / ``anthropic-*``  → Anthropic SDK
+  - ``deepseek-*``                  → OpenAI SDK (OpenAI-compatible API)
   - ``gpt-*`` / ``o1-*`` / ``o3-*`` → OpenAI SDK
 
 Token usage is stashed in ``ctx.state["llm_usage"]`` so the executor
@@ -24,6 +25,7 @@ of the pipeline expects.
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any, Optional
 
@@ -86,12 +88,18 @@ class _Direct:
             tools = []
 
         try:
-            if provider == "openai":
+            if provider in ("openai", "deepseek"):
+                base_url = None
+                if provider == "deepseek":
+                    base_url = os.environ.get(
+                        "DEEPSEEK_BASE_URL", "https://api.deepseek.com"
+                    )
                 text, usage, tool_calls = _run_openai_loop(
                     model=model,
                     system=system,
                     user=user_msg,
                     api_key=api_key,
+                    base_url=base_url,
                     max_tokens=self.max_tokens,
                     temperature=self.temperature,
                     tools=tools,
@@ -262,6 +270,7 @@ def _run_openai_loop(
     system: str,
     user: str,
     api_key: str,
+    base_url: Optional[str] = None,
     max_tokens: int,
     temperature: float,
     tools: list[Any],
@@ -280,7 +289,11 @@ def _run_openai_loop(
         raise _SdkUnavailable("openai") from e
     from runtime.mcp.client import call_tool as mcp_call
 
-    client = OpenAI(api_key=api_key)
+    if base_url:
+        client = OpenAI(api_key=api_key, base_url=base_url)
+    else:
+        client = OpenAI(api_key=api_key)
+
     openai_tools = [t.to_openai_tool() for t in tools] if tools else None
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system},
