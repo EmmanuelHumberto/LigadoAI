@@ -28,8 +28,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
-
+from typing import Any
 
 logger = logging.getLogger("runtime.mcp.client")
 
@@ -78,7 +77,7 @@ class _LoopBridge:
     """One asyncio loop per process, running on a daemon thread."""
 
     _lock = threading.Lock()
-    _instance: Optional["_LoopBridge"] = None
+    _instance: _LoopBridge | None = None
 
     def __init__(self) -> None:
         self.loop = asyncio.new_event_loop()
@@ -92,7 +91,7 @@ class _LoopBridge:
         self.loop.run_forever()
 
     @classmethod
-    def get(cls) -> "_LoopBridge":
+    def get(cls) -> _LoopBridge:
         if cls._instance is not None:
             return cls._instance
         with cls._lock:
@@ -120,7 +119,7 @@ _catalog_cache: dict[str, _CachedCatalog] = {}
 _catalog_lock = threading.Lock()
 
 
-def invalidate_cache(agent_id: Optional[str] = None) -> None:
+def invalidate_cache(agent_id: str | None = None) -> None:
     """Drop the cached catalog. Pass ``None`` to clear everything."""
     with _catalog_lock:
         if agent_id is None:
@@ -153,7 +152,7 @@ def list_tools_for_agent(
 
     from runtime.agents.mcp import enabled_servers
 
-    servers = enabled_servers(agent_id)
+    servers = _filter_blocked_servers(enabled_servers(agent_id), agent_id=agent_id)
     if not servers:
         with _catalog_lock:
             _catalog_cache[agent_id] = _CachedCatalog(tools=[], fetched_at=time.time())
@@ -195,7 +194,7 @@ def call_tool(
         raise ValueError(f"qualified_name must be '<server>__<tool>', got {qualified_name!r}")
     server_name, tool_name = qualified_name.split("__", 1)
 
-    servers = enabled_servers(agent_id)
+    servers = _filter_blocked_servers(enabled_servers(agent_id), agent_id=agent_id)
     server = next((s for s in servers if s.name == server_name), None)
     if server is None:
         raise RuntimeError(f"mcp_server_not_found: {server_name}")
@@ -204,6 +203,32 @@ def call_tool(
     return bridge.run(
         _invoke_tool_for_server(server, tool_name, arguments),
         timeout=timeout_s,
+    )
+
+
+def _filter_blocked_servers(servers: list[Any], *, agent_id: str) -> list[Any]:
+    allowed = []
+    for server in servers:
+        if _is_legacy_ligadoai_server(server):
+            logger.warning(
+                "blocked legacy MCP server for %s: %s",
+                agent_id,
+                getattr(server, "name", "<unnamed>"),
+            )
+            continue
+        allowed.append(server)
+    return allowed
+
+
+def _is_legacy_ligadoai_server(server: Any) -> bool:
+    name = str(getattr(server, "name", "") or "")
+    command = str(getattr(server, "command", "") or "")
+    args = " ".join(str(arg) for arg in getattr(server, "args", []) or [])
+    haystack = f"{name} {command} {args}"
+    return (
+        name.startswith("ligadoai_")
+        or "opentracy-terminal-chat" in haystack
+        or "ligadoai_tools" in haystack
     )
 
 
@@ -236,9 +261,10 @@ def _streams_ctx(server):
     transport = (server.transport or "stdio").lower()
 
     if transport == "stdio":
+        import os
+
         from mcp import StdioServerParameters
         from mcp.client.stdio import stdio_client
-        import os
 
         if not server.command:
             raise RuntimeError("missing command for stdio transport")

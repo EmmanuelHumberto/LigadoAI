@@ -3,81 +3,101 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
+from uuid import uuid4
 
-import numpy as np
-import pytest
-
+from knowledge.domain import KnowledgeSearchResult
 from runtime.protocols import Context
 from techniques.rag.impl import RagTechnique, _DenseRetriever
 
 
-class _BagOfWordsEmbedder:
-    def __init__(self, dim: int = 64) -> None:
-        self.dim = dim
-    def embed(self, text: str) -> np.ndarray:
-        import hashlib
-        v = np.zeros(self.dim, dtype=np.float32)
-        for tok in text.lower().split():
-            bucket = int.from_bytes(hashlib.sha1(tok.encode()).digest()[:4], "big")
-            v[bucket % self.dim] += 1.0
-        return v
-    def embed_batch(self, texts):
-        return np.stack([self.embed(t) for t in texts], axis=0)
+class _FakeKnowledgeSearch:
+    async def search(self, query: str, *, top_k: int = 8, filters=None):
+        return [
+            KnowledgeSearchResult(
+                chunk_id=uuid4(),
+                document_id=uuid4(),
+                score=3.5,
+                text="Faulhaber 2224 SR DFF coreless motor technical data.",
+                source_uri="/docs/faulhaber-2224.md",
+                metadata={"manufacturer": "Faulhaber", "model": "2224"},
+            )
+        ][:top_k]
 
 
-@pytest.fixture
-def small_index(tmp_path, monkeypatch):
-    """Build a tiny index in tmp_path and point CorpusStore.load at it."""
-    from corpora.ingest import ingest
-
-    src = tmp_path / "src"
-    src.mkdir()
-    (src / "refund.md").write_text("Refund policy: full refund within 7 days of return.")
-    (src / "shipping.md").write_text("Shipping to Brazil takes 8-14 business days.")
-    (src / "cancel.md").write_text("Order cancellation must happen before warehouse pickup.")
-
-    idx_root = tmp_path / "indexed"
-    embedder = _BagOfWordsEmbedder()
-    ingest(src, chunk_size=20, overlap=2, root=idx_root, embedder=embedder)
-
-    monkeypatch.setattr("corpora.store._DEFAULT_ROOT", idx_root)
-    return embedder
+class _FailingKnowledgeSearch:
+    async def search(self, query: str, *, top_k: int = 8, filters=None):
+        raise RuntimeError("database down")
 
 
-def test_dense_returns_docs_from_corpus(small_index, monkeypatch):
-    """When corpus is populated, dense retrieve returns Documents with
-    chunk_id + source metadata."""
+@dataclass
+class _FakeDocument:
+    title: str
+    source_uri: str
+    status: str = "indexed"
+    manufacturer: str | None = None
+    model: str | None = None
+    document_type: str | None = None
+
+
+class _FakeInventorySearch(_FakeKnowledgeSearch):
+    async def list_documents(self, include_deleted: bool = False):
+        return [
+            _FakeDocument(
+                title="Motor 1",
+                source_uri="/docs/motor-1.md",
+                manufacturer="Faulhaber",
+                model="2224",
+                document_type="datasheet",
+            ),
+            _FakeDocument(
+                title="Motor 2",
+                source_uri="/docs/motor-2.md",
+                manufacturer="Faulhaber",
+                model="2610",
+                document_type="datasheet",
+            ),
+        ]
+
+
+def test_dense_returns_docs_from_knowledge_search():
     retriever = _DenseRetriever(knobs={"k": 3})
-    retriever._embedder = small_index  # inject deterministic embedder
-    ctx = Context(request="refund policy", documents=[])
+    retriever._search = _FakeKnowledgeSearch()
+    ctx = Context(request="Faulhaber 2224", documents=[])
     retriever.execute(ctx)
-    assert len(ctx.documents) >= 1
+    assert len(ctx.documents) == 1
     top = ctx.documents[0]
-    assert "refund" in top.content.lower()
+    assert "2224" in top.content
     assert top.metadata["variant"] == "dense"
-    assert top.metadata["chunk_id"].startswith("c_")
-    assert top.metadata["source"].endswith("refund.md")
+    assert top.metadata["source"].endswith("faulhaber-2224.md")
+    assert top.metadata["manufacturer"] == "Faulhaber"
     assert "stub" not in top.metadata
 
 
-def test_dense_empty_corpus_returns_no_docs(tmp_path, monkeypatch):
-    """No index → returns 0 docs, no crash. Generate stage handles
-    the zero-docs case gracefully."""
-    monkeypatch.setattr("corpora.store._DEFAULT_ROOT", tmp_path / "empty")
+def test_dense_adds_catalog_for_inventory_request():
+    retriever = _DenseRetriever(knobs={"k": 3})
+    retriever._search = _FakeInventorySearch()
+    ctx = Context(request="liste todos os motores", documents=[])
+    retriever.execute(ctx)
+
+    assert len(ctx.documents) == 2
+    catalog = ctx.documents[0]
+    assert catalog.metadata["variant"] == "catalog"
+    assert "Motor 1" in catalog.content
+    assert "Motor 2" in catalog.content
+
+
+def test_dense_without_configured_knowledge_returns_no_docs(monkeypatch):
+    monkeypatch.delenv("OPENTRACY_KNOWLEDGE_BACKEND", raising=False)
+    monkeypatch.delenv("OPENTRACY_KNOWLEDGE_DATABASE_URL", raising=False)
     retriever = _DenseRetriever(knobs={"k": 8})
     ctx = Context(request="anything at all", documents=[])
     retriever.execute(ctx)
     assert ctx.documents == []
 
 
-def test_dense_embedder_failure_returns_no_docs(small_index, monkeypatch):
-    """If the embedder raises, we log + return [] instead of bubbling."""
-    class _Bad:
-        dim = 64
-        def embed(self, text): raise RuntimeError("embedder down")
+def test_dense_search_failure_returns_no_docs():
     retriever = _DenseRetriever(knobs={"k": 3})
-    retriever._embedder = _Bad()
+    retriever._search = _FailingKnowledgeSearch()
     ctx = Context(request="x", documents=[])
     retriever.execute(ctx)
     assert ctx.documents == []
@@ -93,10 +113,10 @@ def test_sparse_and_hybrid_still_stub():
         assert all(d.metadata.get("stub") for d in ctx.documents)
 
 
-def test_dense_respects_k_knob(small_index, monkeypatch):
+def test_dense_respects_k_knob():
     """k=1 returns at most 1 doc."""
     retriever = _DenseRetriever(knobs={"k": 1})
-    retriever._embedder = small_index
+    retriever._search = _FakeKnowledgeSearch()
     ctx = Context(request="shipping brazil", documents=[])
     retriever.execute(ctx)
     assert len(ctx.documents) == 1

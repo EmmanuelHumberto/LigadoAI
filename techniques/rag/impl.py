@@ -2,10 +2,9 @@
 
 Variants:
 
-  - ``dense`` — P1.10. Embeds the request with the shared PromptEmbedder
-    and queries the persisted corpus index (``corpora/indexed/``).
-    Cold-start safe: empty corpus → returns 0 docs, no crash; the
-    generate stage answers from the LLM's own knowledge.
+  - ``dense`` — queries the OpenTracy knowledge vertical. Cold-start safe:
+    empty or unavailable corpus → returns 0 docs, no crash; the generate
+    stage answers from the LLM's own knowledge.
   - ``sparse`` and ``hybrid`` — still stubs (BM25 + fusion lands in
     P1.10.x). Wired so the pipeline can opt into them when the index
     grows enough to make sparse worthwhile.
@@ -17,13 +16,10 @@ shape, so the rerank stage doesn't care which retriever produced a doc.
 from __future__ import annotations
 
 import logging
-from pathlib import Path
-from typing import Any, Optional
-
-import numpy as np
+import os
+from typing import Any
 
 from runtime.protocols import BaseTechnique, Context, Document, Stage
-
 
 logger = logging.getLogger("techniques.rag")
 
@@ -43,7 +39,10 @@ class _StubRetriever:
     def execute(self, context: Context) -> Context:
         context.documents = [
             Document(
-                content=f"[stub doc {i}] (variant={self.variant}) relevant to: {context.request[:80]}",
+                content=(
+                    f"[stub doc {i}] (variant={self.variant}) "
+                    f"relevant to: {context.request[:80]}"
+                ),
                 score=round(1.0 - 0.05 * i, 3),
                 metadata={"variant": self.variant, "rank": i, "stub": True},
             )
@@ -53,45 +52,46 @@ class _StubRetriever:
 
 
 class _DenseRetriever:
-    """Embed the request, top-k against ``corpora/indexed/``.
-    Recarrega o indice automaticamente se o arquivo no disco mudar.
-    """
+    """Retrieve top-k chunks from the knowledge vertical."""
 
     def __init__(self, knobs: dict[str, Any]) -> None:
         self.k: int = int(knobs.get("k", 8))
-        self._embedder: Optional[Any] = None
-        self._store: Optional[Any] = None
-        self._store_mtime: float = 0.0
+        self.timeout_seconds: float = float(knobs.get("timeout_seconds", 5))
+        self.catalog_limit: int = int(knobs.get("catalog_limit", 50))
+        self._search: Any | None = None
 
     def execute(self, context: Context) -> Context:
-        store = self._load_store()
-        if store is None or store.empty:
-            context.documents = []
-            return context
-
-        embedder = self._load_embedder()
-        if embedder is None:
+        search = self._search or self._new_search()
+        if search is None:
             context.documents = []
             return context
 
         try:
-            vec = embedder.embed(context.request)
+            hits, catalog = _run_async(
+                _retrieve_and_close(
+                    search,
+                    context.request,
+                    top_k=self.k,
+                    include_catalog=_is_inventory_request(context.request),
+                    catalog_limit=self.catalog_limit,
+                    close_after=self._search is None,
+                ),
+                timeout_seconds=self.timeout_seconds,
+            )
         except Exception as e:
-            logger.warning("embed failed (%s) — returning 0 docs", e)
+            logger.warning("knowledge search failed (%s) — returning 0 docs", e)
             context.documents = []
             return context
 
-        if not isinstance(vec, np.ndarray):
-            vec = np.asarray(vec, dtype=np.float32)
-        hits = store.query(vec, k=self.k)
-        context.documents = [
+        context.documents = catalog + [
             Document(
                 content=hit.text,
                 score=hit.score,
                 metadata={
                     "variant": "dense",
-                    "chunk_id": hit.chunk_id,
-                    "source": hit.source,
+                    "chunk_id": str(hit.chunk_id),
+                    "document_id": str(hit.document_id),
+                    "source": hit.source_uri,
                     **hit.metadata,
                 },
             )
@@ -99,39 +99,18 @@ class _DenseRetriever:
         ]
         return context
 
-    def _load_store(self):
-        # Verifica se o arquivo no disco mudou desde a ultima carga
-        manifest_path = Path("corpora/indexed/manifest.jsonl")
+    def _new_search(self):
+        backend = os.environ.get("OPENTRACY_KNOWLEDGE_BACKEND", "memory").strip().lower()
+        dsn = os.environ.get("OPENTRACY_KNOWLEDGE_DATABASE_URL", "").strip()
+        if backend != "postgres" or not dsn:
+            return None
         try:
-            current_mtime = manifest_path.stat().st_mtime
-        except (OSError, FileNotFoundError):
-            current_mtime = 0.0
+            from knowledge.infrastructure.postgres import LazyPostgresKnowledgeRepository
 
-        # Se o store ja foi carregado e o arquivo nao mudou, usa cache
-        if self._store is not None and current_mtime <= self._store_mtime:
-            return self._store
-
-        # Se o store nunca foi carregado ou o arquivo mudou, recarrega
-        try:
-            from corpora.store import CorpusStore
-            self._store = CorpusStore.load()
-            self._store_mtime = current_mtime
+            return LazyPostgresKnowledgeRepository(dsn)
         except Exception as e:
-            logger.warning("CorpusStore.load failed (%s) — empty retrieve", e)
-            self._store = None
-            self._store_mtime = 0.0
-        return self._store
-
-    def _load_embedder(self):
-        if self._embedder is not None:
-            return self._embedder
-        try:
-            from runtime.embedder_pool import get_pool
-            self._embedder = get_pool().get()
-        except Exception as e:
-            logger.warning("embedder load failed (%s)", e)
-            self._embedder = None
-        return self._embedder
+            logger.warning("knowledge search adapter load failed (%s)", e)
+            return None
 
 
 class RagTechnique(BaseTechnique):
@@ -144,3 +123,84 @@ class RagTechnique(BaseTechnique):
         if variant == "dense":
             return _DenseRetriever(knobs)
         return _StubRetriever(knobs, variant)
+
+
+def _run_async(awaitable, *, timeout_seconds: float):
+    import asyncio
+
+    async def _with_timeout():
+        return await asyncio.wait_for(awaitable, timeout=timeout_seconds)
+
+    try:
+        return asyncio.run(_with_timeout())
+    except RuntimeError as exc:
+        raise RuntimeError("rag dense retriever requires a synchronous execution context") from exc
+
+
+async def _retrieve_and_close(
+    search,
+    query: str,
+    *,
+    top_k: int,
+    include_catalog: bool,
+    catalog_limit: int,
+    close_after: bool,
+):
+    try:
+        hits = await search.search(query, top_k=top_k)
+        catalog = []
+        if include_catalog and hasattr(search, "list_documents"):
+            catalog = [_catalog_document(await search.list_documents())]
+            catalog[0].content = _limit_catalog(catalog[0].content, catalog_limit)
+        return hits, catalog
+    finally:
+        if close_after and hasattr(search, "close"):
+            await search.close()
+
+
+def _is_inventory_request(query: str) -> bool:
+    normalized = query.lower()
+    triggers = (
+        "listar todos",
+        "liste todos",
+        "lista todos",
+        "todos os",
+        "todas as",
+        "quais ",
+        "catalogo",
+        "catálogo",
+        "inventario",
+        "inventário",
+    )
+    return any(trigger in normalized for trigger in triggers)
+
+
+def _catalog_document(documents: list[Any]) -> Document:
+    lines = ["Catalogo de documentos indexados disponiveis no OpenTracy:"]
+    for index, document in enumerate(documents, 1):
+        if str(getattr(document, "status", "")).endswith("deleted"):
+            continue
+        title = getattr(document, "title", None) or "-"
+        source = getattr(document, "source_uri", None) or "-"
+        manufacturer = getattr(document, "manufacturer", None) or "-"
+        model = getattr(document, "model", None) or "-"
+        document_type = getattr(document, "document_type", None) or "-"
+        lines.append(
+            f"{index}. titulo={title}; fonte={source}; fabricante={manufacturer}; "
+            f"modelo={model}; tipo={document_type}"
+        )
+    return Document(
+        content="\n".join(lines),
+        score=100.0,
+        metadata={"variant": "catalog", "source": "knowledge_documents"},
+    )
+
+
+def _limit_catalog(content: str, limit: int) -> str:
+    lines = content.splitlines()
+    if len(lines) <= limit + 1:
+        return content
+    shown = lines[: limit + 1]
+    remaining = len(lines) - len(shown)
+    shown.append(f"... {remaining} documentos adicionais omitidos do catalogo.")
+    return "\n".join(shown)

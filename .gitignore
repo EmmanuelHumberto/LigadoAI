@@ -26,6 +26,7 @@ build/
 
 # Logs
 *.log
+evals/reports/
 
 # uv
 uv.lock

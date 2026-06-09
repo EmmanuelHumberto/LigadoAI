@@ -100,6 +100,13 @@ class _CrossEncoderReranker:
             if len(kept) >= self.top_n:
                 break
 
+        if not kept and docs:
+            logger.info(
+                "cross-encoder filtered all %d docs — keeping top_n retrieve hits",
+                len(docs),
+            )
+            return self._stub_fallback(context)
+
         context.documents = kept
         return context
 

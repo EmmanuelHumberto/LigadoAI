@@ -69,6 +69,10 @@ help:
 	@echo ""
 	@echo "Optional:"
 	@echo "  WHATSAPP=1    Enable the WhatsApp channel"
+	@echo ""
+	@echo "Measurements/PostgreSQL:"
+	@echo "  Set OPENTRACY_MEASUREMENTS_BACKEND=postgres in .env"
+	@echo "  and configure OPENTRACY_MEASUREMENTS_DATABASE_URL"
 
 install:
 	uv sync --extra rag

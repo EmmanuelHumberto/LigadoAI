@@ -3,6 +3,7 @@ technique: rag
 variant: dense
 knobs:
   chunk_size: 512
-  k: 18
+  k: 30
+  catalog_limit: 80
   embedder: sentence-transformers/all-MiniLM-L6-v2
   rerank_inline: false

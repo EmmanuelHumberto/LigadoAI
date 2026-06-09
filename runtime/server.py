@@ -116,6 +116,7 @@ class AgentInfo(BaseModel):
 
 
 _state: dict[str, Any] = {}
+_feature_routers_included = False
 
 
 @asynccontextmanager
@@ -125,6 +126,7 @@ async def lifespan(app: FastAPI):
     loaded = load_env()
     if loaded:
         logger.info(".env loaded: %d key(s)", len(loaded))
+    _include_feature_routers()
 
     # P16.1 — multi-tenant migration runs ONLY when the hosted/infra
     # mode is enabled (OPENTRACY_MULTI_TENANT=1). OSS local users
@@ -187,6 +189,27 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="opentracy-runtime", lifespan=lifespan)
+
+
+def _include_knowledge_router() -> None:
+    from knowledge.runtime import create_default_knowledge_router
+
+    app.include_router(create_default_knowledge_router())
+
+
+def _include_measurements_router() -> None:
+    from measurements.runtime import create_default_measurements_router
+
+    app.include_router(create_default_measurements_router())
+
+
+def _include_feature_routers() -> None:
+    global _feature_routers_included
+    if _feature_routers_included:
+        return
+    _include_knowledge_router()
+    _include_measurements_router()
+    _feature_routers_included = True
 
 
 # P16.2 — Mount MCP HTTP/SSE routes. The handlers read the session
@@ -5315,6 +5338,36 @@ def admin_features_endpoint() -> FeatureFlags:
         multi_tenant=is_multi_tenant_enabled(),
         kms=kms_on,
     )
+
+
+# ---------- corpus reload ----------
+
+
+class CorpusReloadRequest(BaseModel):
+    chunks: list[dict[str, Any]]
+    vectors: list[list[float]]
+
+
+class CorpusReloadResponse(BaseModel):
+    loaded: int
+    dimension: int
+
+
+@app.post("/corpus/reload", response_model=CorpusReloadResponse)
+async def corpus_reload(payload: CorpusReloadRequest) -> CorpusReloadResponse:
+    """Replace the in-memory FAISS index with a fresh set of chunks + vectors.
+
+    Called by Cous after ingesting/embedding new knowledge documents.
+    The retriever automatically picks up the new index on the next query.
+    """
+    from corpora.memory_store import CorpusMemoryStore
+
+    store = CorpusMemoryStore.instance()
+    try:
+        result = await store.reload(payload.chunks, payload.vectors)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return CorpusReloadResponse(loaded=result["loaded"], dimension=result["dimension"])
 
 
 def main() -> None:

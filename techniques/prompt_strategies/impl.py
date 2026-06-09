@@ -377,9 +377,37 @@ def _render_user_message(documents: list[Document], request: str) -> str:
         return request
     blocks = []
     for i, doc in enumerate(documents, 1):
-        blocks.append(f"[{i}] {doc.content}")
+        metadata = doc.metadata or {}
+        source = metadata.get("source") or metadata.get("documento_id") or ""
+        fabricante = metadata.get("fabricante") or metadata.get("manufacturer") or ""
+        modelo = metadata.get("modelo") or metadata.get("model") or ""
+        tipo = metadata.get("tipo") or metadata.get("document_type") or ""
+        header_parts = [f"[{i}]"]
+        if source:
+            header_parts.append(f"Fonte: {source}")
+        details = []
+        if fabricante:
+            details.append(f"fabricante={fabricante}")
+        if modelo:
+            details.append(f"modelo={modelo}")
+        if tipo:
+            details.append(f"tipo={tipo}")
+        if details:
+            header_parts.append("(" + ", ".join(details) + ")")
+        blocks.append(f"{' '.join(header_parts)}\n{doc.content}")
     context_str = "\n\n".join(blocks)
-    return f"Context:\n{context_str}\n\nQuestion: {request}"
+    instructions = (
+        "Use somente o contexto abaixo como base factual quando houver contexto. "
+        "Quando o usuario pedir para listar todos, todos os modelos, todos os "
+        "clientes, todos os motores ou um inventario completo, percorra todas as "
+        "fontes do contexto antes de responder. Nao resuma para apenas dois "
+        "exemplos. Se a lista estiver limitada ao contexto recuperado, diga isso "
+        "explicitamente."
+    )
+    return (
+        f"Instrucoes de uso do contexto:\n{instructions}\n\n"
+        f"Context:\n{context_str}\n\nQuestion: {request}"
+    )
 
 
 class _ClaudeCode:

@@ -4,5 +4,5 @@ technique: prompt_strategies
 variant: direct
 knobs:
   prompt: ../prompts/system.md
-  max_tokens: 2048
+  max_tokens: 4096
   temperature: 0.3

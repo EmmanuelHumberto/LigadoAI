@@ -90,6 +90,64 @@ login, no signup. OSS runs single-tenant on localhost by design.
   [docs/channels/whatsapp.md](docs/channels/whatsapp.md) before enabling.
 - **ClickHouse** is optional. The `.env.example` enables it; set
   `OPENTRACY_CH_ENABLED=false` to use the local store instead.
+- **Measurements** default to in-memory storage. To persist `/measurements/*`
+  in PostgreSQL, set `OPENTRACY_MEASUREMENTS_BACKEND=postgres` and either
+  `OPENTRACY_MEASUREMENTS_DATABASE_URL` or `OPENTRACY_KNOWLEDGE_DATABASE_URL`.
+  The runtime exposes `GET /measurements/status` so clients can verify
+  `backend`, `database_configured` and `auth_configured`.
+  Session creation now validates the measurement header before persistence and
+  rejects invalid payloads with HTTP `422`.
+
+### Measurements runtime notes
+
+- `POST /measurements/sessions` validates:
+  - `tipo_coleta` obrigatório;
+  - `peca_substituida` obrigatória em `reparo` e `pos-reparo`;
+  - pelo menos uma vertical em `verticais`;
+  - `baudrate > 0`;
+  - `duracao_seg > 0`;
+  - `curso_nominal_mm` dentro do intervalo `[curso_min_mm, curso_max_mm]` quando os três campos existem.
+- `POST /measurements/sessions/{id}/snapshots` mantém snapshots inválidos como
+  registros com `status=invalid`, preservando evidência para diagnóstico.
+- O runtime de medições lê o ambiente depois do `.env`; por isso
+  `GET /measurements/status` reflete o backend real configurado no processo.
+
+### Measurements quick use
+
+Configuração mínima para PostgreSQL no `.env`:
+
+```dotenv
+OPENTRACY_MEASUREMENTS_BACKEND=postgres
+OPENTRACY_MEASUREMENTS_DATABASE_URL=postgresql://ligadoai:ligadoai@localhost:5432/ligadoai
+OPENTRACY_MEASUREMENTS_AUTH_TOKEN=seu-token-aqui
+```
+
+Exemplos de uso:
+
+```bash
+curl -H "Authorization: Bearer $OPENTRACY_MEASUREMENTS_AUTH_TOKEN" \
+  http://localhost:8001/measurements/status
+
+curl -X POST \
+  -H "Authorization: Bearer $OPENTRACY_MEASUREMENTS_AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  http://localhost:8001/measurements/sessions \
+  -d '{
+    "header": {
+      "fabricante": "DKLAB",
+      "modelo": "W1PRO",
+      "tipo_coleta": "desempenho",
+      "verticais": ["hall", "power"]
+    }
+  }'
+```
+
+Fluxo esperado:
+
+1. criar a sessão em `/measurements/sessions`;
+2. enviar snapshots em `/measurements/sessions/{id}/snapshots`;
+3. gerar diagnóstico em `/measurements/sessions/{id}/diagnose`;
+4. gerar laudo em `/measurements/sessions/{id}/report`.
 
 ## Architecture
 
