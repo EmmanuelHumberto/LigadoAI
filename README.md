@@ -12,6 +12,9 @@ approval before they go live.
 - A trainable agent surface at `agent/` — one YAML + a handful of Python files.
   Mutated by Claude Code (driven by the harness) in response to evidence from
   real traces.
+- A default agent implementation already wired with DeepSeek routing:
+  `deepseek-chat` as the small model and `deepseek-reasoner` as the escalation
+  path for harder requests.
 - An **autonomous engineering loop** modeled on Lin et al.'s AHE algorithm
   (arxiv 2604.25850). The harness proposes candidate edits, critiques them,
   runs evals, and applies the winners as file-level patches with cheap rollback.
@@ -184,6 +187,19 @@ ingests into `corpora/`. Everything else is framework. See
 
 Languages: Python (`harness/`, `runtime/`, `evals/`, `ml/`, `techniques/`),
 TypeScript (`backend/`, `ui/`).
+
+## Default agent
+
+The repository already ships a first concrete agent implementation in `agent/`.
+
+- `agent/pipeline/route.yaml` uses the `small_first` routing strategy.
+- The current small model is `deepseek-chat`.
+- The current escalation model is `deepseek-reasoner`.
+- `escalate_on_failure: true` promotes harder or low-confidence requests to the
+  reasoning path automatically.
+
+That means DeepSeek is not just a future integration here; it is the active
+baseline agent configuration committed in the repository.
 
 ## Distribution modes
 

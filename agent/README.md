@@ -10,4 +10,11 @@ have measurable behavioral impact.
 - `custom/` — Python implementations the agent has synthesized when no existing
   technique variant fit. Last-resort path; prefer composition over custom code.
 
+Current baseline:
+
+- routing strategy: `small_first`
+- small model: `deepseek-chat`
+- escalation model: `deepseek-reasoner`
+- escalation on failure: enabled
+
 Mutable. Versioned via `ledger/versions/`.
