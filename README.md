@@ -152,6 +152,16 @@ Fluxo esperado:
 3. gerar diagnóstico em `/measurements/sessions/{id}/diagnose`;
 4. gerar laudo em `/measurements/sessions/{id}/report`.
 
+### Known gaps
+
+The core runtime is in place, but a few surfaces are still intentionally stubbed or phase-gated:
+
+- Slack connect flow is still a placeholder in the OSS path.
+- The `feedback_signals` mining adapter remains stubbed.
+- Some hosted/multi-tenant flows stay behind `OPENTRACY_MULTI_TENANT=1`.
+
+Those are the remaining implementation gaps to close when you move beyond the current OSS baseline.
+
 ## Architecture
 
 | Directory | Role |
