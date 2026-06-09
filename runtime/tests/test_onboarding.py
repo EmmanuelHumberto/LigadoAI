@@ -205,6 +205,12 @@ def client(tmp_path, monkeypatch):
     # Stub the Lesson hook so we don't touch the real ledger.
     import runtime.store.onboarding as ob
     monkeypatch.setattr(ob, "_default_lesson_hook", lambda c: None)
+    import runtime.store.onboarding_session as obs
+    monkeypatch.setattr(
+        obs,
+        "_resolve_session_path",
+        lambda: tmp_path / "agent" / "onboarding_session.json",
+    )
 
     from runtime.server import app
     with TestClient(app) as c:
@@ -251,3 +257,46 @@ def test_post_skip(client):
     body = r.json()
     assert body["completed"] is True
     assert body["skipped"] is True
+
+
+def test_onboarding_slack_begin_returns_real_manifest_url(client):
+    import runtime.store.onboarding_session as obs
+
+    session = obs.get_or_create_session()
+    session.agent_id = "agent-slack"
+    obs._save(session, obs._resolve_session_path())
+
+    response = client.post("/onboarding/connect/slack/begin")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["state"] == "agent-slack"
+    assert body["install_url"].endswith("/v1/agents/agent-slack/channels/slack/manifest")
+
+
+def test_onboarding_slack_status_reflects_real_channel_install(client, monkeypatch):
+    import runtime.store.onboarding_session as obs
+
+    session = obs.get_or_create_session()
+    session.agent_id = "agent-slack"
+    session.slack["installed"] = False
+    obs._save(session, obs._resolve_session_path())
+
+    monkeypatch.setattr(
+        "runtime.agents.channels.load",
+        lambda agent_id, channel, root=None: (
+            {
+                "team_id": "T123",
+                "team_name": "Acme",
+                "installed_at": "2026-06-09T00:00:00Z",
+            }
+            if agent_id == "agent-slack" and channel == "slack"
+            else None
+        ),
+    )
+
+    response = client.get("/onboarding/connect/slack/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["installed"] is True

@@ -87,6 +87,8 @@ onboardingRouter.post('/session/rewind', proxy('POST', '/onboarding/session/rewi
 onboardingRouter.post('/session/reset', proxy('POST', '/onboarding/session/reset'))
 onboardingRouter.post('/session/save-key', proxy('POST', '/onboarding/session/save-key'))
 
-// Slack connect — stubs in Phase A; Phase C wires real OAuth.
+// Slack connect — onboarding reuses the real per-agent Slack channel
+// flow. The runtime surfaces manifest/status for the current onboarding
+// agent; installation itself still happens through the manual token form.
 onboardingRouter.post('/connect/slack/begin', proxy('POST', '/onboarding/connect/slack/begin'))
 onboardingRouter.get('/connect/slack/status', proxy('GET', '/onboarding/connect/slack/status'))

@@ -3381,10 +3381,12 @@ def onboarding_v2_reset() -> OnboardingV2Session:
     return _to_v2_response(onboarding_session.reset())
 
 
-# ─── Slack connect stubs (Phase A) ───────────────────────────────────
+# ─── Slack connect (OSS manual install) ──────────────────────────────
 #
-# Real OAuth lands in Phase C. These endpoints exist now so the UI
-# can wire its buttons + polling against stable URLs.
+# OSS uses the real per-agent Slack channel flow already implemented in
+# the gateway: manifest generation plus manual paste of xapp/xoxb tokens.
+# The onboarding endpoints below simply surface that live state back to
+# the onboarding UI so it can stop treating Slack as a placeholder.
 
 
 class SlackConnectBeginResponse(BaseModel):
@@ -3394,12 +3396,15 @@ class SlackConnectBeginResponse(BaseModel):
 
 @app.post("/onboarding/connect/slack/begin", response_model=SlackConnectBeginResponse)
 def onboarding_slack_begin() -> SlackConnectBeginResponse:
-    """Stub — returns a placeholder install URL until Phase C wires
-    real Slack OAuth. The UI surfaces this as the "Add to Slack" button
-    target; clicking it today is a no-op."""
+    """Return the gateway manifest URL for the current onboarding agent."""
+    from runtime.store import onboarding_session
+
+    session = onboarding_session.get_or_create_session()
+    agent_id = session.agent_id
+    install_url = onboarding_session._slack_manifest_url(agent_id)
     return SlackConnectBeginResponse(
-        install_url="https://slack.com/oauth/v2/authorize?stub=1",
-        state="stub",
+        install_url=install_url,
+        state=agent_id or "missing_agent",
     )
 
 
@@ -3410,12 +3415,16 @@ class SlackConnectStatusResponse(BaseModel):
 
 @app.get("/onboarding/connect/slack/status", response_model=SlackConnectStatusResponse)
 def onboarding_slack_status() -> SlackConnectStatusResponse:
-    """Stub — returns the current Slack connection state from the
-    session. Phase C will update it from real OAuth + event callbacks."""
+    """Return the current Slack connection state for the onboarding agent."""
     from runtime.store import onboarding_session
+
     session = onboarding_session.get_or_create_session()
+    installed = onboarding_session._channel_connected(session)
+    if installed and not session.slack.get("installed"):
+        session.slack["installed"] = True
+        onboarding_session._save(session, onboarding_session._resolve_session_path())
     return SlackConnectStatusResponse(
-        installed=bool(session.slack.get("installed")),
+        installed=installed,
         first_message_at=session.slack.get("first_message_at"),
     )
 

@@ -156,8 +156,7 @@ Fluxo esperado:
 
 The core runtime is in place, but a few surfaces are still intentionally stubbed or phase-gated:
 
-- Slack connect flow is still a placeholder in the OSS path.
-- The `feedback_signals` mining adapter remains stubbed.
+- Slack OAuth callback automation is not implemented; OSS uses the manual manifest + token flow.
 - Some hosted/multi-tenant flows stay behind `OPENTRACY_MULTI_TENANT=1`.
 
 Those are the remaining implementation gaps to close when you move beyond the current OSS baseline.

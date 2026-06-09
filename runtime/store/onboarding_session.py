@@ -376,7 +376,7 @@ def _connect_card(session: Session) -> dict[str, Any]:
     """
     channel = (session.decisions or {}).get("channel", "slack")
     masked = session.agent_key_preview or "ot_live_••••••••••••••••"
-    connected = bool(session.slack.get("installed"))
+    connected = _channel_connected(session)
     status = "connected" if connected else "waiting"
 
     if channel == "whatsapp":
@@ -433,10 +433,34 @@ def _connect_card(session: Session) -> dict[str, Any]:
     # default: slack
     return {
         "type": "connect_slack",
-        "install_url": "#stub-slack-install",
+        "install_url": _slack_manifest_url(session.agent_id),
         "agent_key_preview": masked,
         "status": status,
     }
+
+
+def _channel_connected(session: Session) -> bool:
+    channel = (session.decisions or {}).get("channel", "slack")
+    if channel != "slack":
+        return bool(session.slack.get("installed"))
+    if not session.agent_id:
+        return bool(session.slack.get("installed"))
+    try:
+        from runtime.agents.channels import load
+
+        return load(session.agent_id, "slack") is not None
+    except Exception:
+        return bool(session.slack.get("installed"))
+
+
+def _slack_manifest_url(agent_id: str | None) -> str:
+    if not agent_id:
+        return "#missing-agent"
+    base = (os.environ.get("PUBLIC_BASE_URL") or "").rstrip("/")
+    if not base:
+        port = os.environ.get("OPENTRACY_BACKEND_PORT", "8002").strip() or "8002"
+        base = f"http://127.0.0.1:{port}"
+    return f"{base}/v1/agents/{agent_id}/channels/slack/manifest"
 
 
 def _trace_preview_card(session: Session) -> dict[str, Any]:
