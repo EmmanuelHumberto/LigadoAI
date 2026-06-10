@@ -1,0 +1,12 @@
+id: golden_009
+input:
+  request: cous qual a data de hoje?
+expected:
+  contains: []
+  category: from-trace
+metadata:
+  source: trace:06e02e1d-d61d-4fd9-b6cf-5bfd1190f487
+  promoted_at: '2026-06-10T04:04:00.930Z'
+  trace_verdict: pass
+  agent_version: v0.0.5
+  difficulty: medium

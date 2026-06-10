@@ -5,5 +5,5 @@ knobs:
   chunk_size: 512
   k: 30
   catalog_limit: 80
-  embedder: sentence-transformers/all-MiniLM-L6-v2
+  embedder: intfloat/multilingual-e5-base
   rerank_inline: false

@@ -1,0 +1,13 @@
+id: golden_010
+input:
+  request: "relacione com esses 7 clientes defeito relatado versus onserva\xE7\xF5\
+    es tecnicas"
+expected:
+  contains: []
+  category: from-trace
+metadata:
+  source: trace:e34ecc94-54f4-49da-b43a-c9769a311315
+  promoted_at: '2026-06-10T14:00:55.962Z'
+  trace_verdict: pass
+  agent_version: v0.0.5
+  difficulty: medium
