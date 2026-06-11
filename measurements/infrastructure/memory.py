@@ -79,6 +79,14 @@ class InMemoryMeasurementRepository:
         self._sessions[session_id] = updated
         return updated
 
+    async def delete_session(self, session_id: UUID) -> bool:
+        if session_id not in self._sessions:
+            return False
+        del self._sessions[session_id]
+        if session_id in self._snapshots:
+            del self._snapshots[session_id]
+        return True
+
     async def save_report(
         self,
         session_id: UUID,

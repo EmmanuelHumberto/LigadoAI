@@ -43,6 +43,9 @@ class LazyPostgresMeasurementRepository:
     async def list_sessions(self) -> list[MeasurementSession]:
         return await (await self._ensure_repo()).list_sessions()
 
+    async def delete_session(self, session_id: UUID) -> bool:
+        return await (await self._ensure_repo()).delete_session(session_id)
+
     async def add_snapshots(
         self,
         session_id: UUID,

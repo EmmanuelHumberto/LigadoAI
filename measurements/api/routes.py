@@ -168,6 +168,15 @@ def create_measurements_router(
             markdown=markdown,
         )
 
+    @router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+    async def delete_session(session_id: UUID) -> None:
+        deleted = await repository.delete_session(session_id)
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="session not found",
+            )
+
     return router
 
 

@@ -99,6 +99,14 @@ class PostgresMeasurementRepository:
             )
         return [_session_from_row(row) for row in rows]
 
+    async def delete_session(self, session_id: UUID) -> bool:
+        async with self._pool.acquire() as conn:
+            result = await conn.execute(
+                "DELETE FROM measurement_sessions WHERE id = $1",
+                session_id,
+            )
+            return result == "DELETE 1"
+
     async def add_snapshots(
         self,
         session_id: UUID,
