@@ -71,7 +71,7 @@ def _memory_router(config: KnowledgeRuntimeConfig) -> APIRouter:
     repository = InMemoryKnowledgeRepository()
     search = InMemoryKnowledgeSearch(repository)
     converter = LocalTextDocumentConverter()
-    validator = BasicContentValidator()
+    validator = BasicContentValidator(min_alpha_ratio=0.05)
     index_worker = _index_worker(
         jobs=jobs,
         repository=repository,
@@ -102,7 +102,7 @@ def _postgres_router(config: KnowledgeRuntimeConfig) -> APIRouter:
     repository = LazyPostgresKnowledgeRepository(config.database_url)
     queue = InMemoryKnowledgeQueue()
     converter = LocalTextDocumentConverter()
-    validator = BasicContentValidator()
+    validator = BasicContentValidator(min_alpha_ratio=0.05)
     index_worker = _index_worker(
         jobs=repository,
         repository=repository,
