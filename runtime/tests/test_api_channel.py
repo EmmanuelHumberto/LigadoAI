@@ -30,16 +30,28 @@ def client(tmp_path, monkeypatch):
     # generate stage (which would hit Anthropic).
     class _StubCfg: version = "v0.0.1"
     class _StubPipeline: stages = []
+    class _StubStage:
+        stage = "retrieve"
+        technique = "rag"
+        variant = "default"
+        duration_ms = 0.5
+        docs_in = 0
+        docs_out = 2
+        routing_model = None
+        routing_decision = None
+        error = None
     class _StubRecord:
         response = "stub answer"
         duration_ms = 1.0
         success = True
         error = None
-        stages = []
+        stages = [_StubStage()]
         agent_version = "v0.0.1"
         request = "what"
+        session_id = "sess-from-request"
     class _StubExecutor:
-        def run(self, request, history=None):
+        def run(self, request, history=None, session_id=None):
+            _StubRecord.session_id = session_id
             return None, _StubRecord()
     monkeypatch.setattr("runtime.server.load_agent", lambda _p: _StubCfg())
     monkeypatch.setattr("runtime.server.compile_agent", lambda _cfg: _StubPipeline())
@@ -122,13 +134,17 @@ def test_chat_accepts_valid_token(client):
     r = client.post(
         "/api/_default/chat",
         headers={"authorization": f"Bearer {token}"},
-        json={"request": "hello"},
+        json={"request": "hello", "session_id": "sess-from-request"},
     )
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["success"] is True
     assert body["response"] == "stub answer"
     assert body["trace_id"]
+    assert body["agent_version"] == "v0.0.1"
+    assert body["session_id"] == "sess-from-request"
+    assert body["stages"][0]["stage"] == "retrieve"
+    assert body["stages"][0]["docs_out"] == 2
 
 
 def test_chat_unknown_agent_404(client):

@@ -1,0 +1,21 @@
+id: golden_019
+input:
+  request: "Com rela\xE7\xE3o a vibra\xE7\xE3o temos que fazer uma aproxima\xE7\xE3\
+    o correta, primeiro as duas maquinas tem o mesmo motor Coreless 2016, isso que\
+    \ dizer que ele tem 20 mm de diamentro por 16 de comprimento, tens\xE3o nominal\
+    \ de 12V, PRM no vazio de 12k, resistencia 7,5ohms, torque nominal de  3,2mNm,\
+    \ i polo, 5 pehases, mv/rad/sec 10.1, torque constante de 10.1, isso tudo \xE9\
+    \ a especifica\xE7\xE3o do motor que as duas maquinas usam. As duas s\xE3o direct\
+    \ Drive o que muda ent\xE3o? duas coisas primeiro a massa, formato e balanciamento\
+    \ do stroke (curso, came,) isso faz com que o curso mais desbalanceado da aston\
+    \ big steel gere mais desequilibrio dinamico por isso ela vibra mais \xE9 so olhar\
+    \ a vibra\xE7\xE3o por eixo"
+expected:
+  contains: []
+  category: from-trace
+metadata:
+  source: trace:4046407e-79fb-4fd9-b443-9e972d1a3574
+  promoted_at: '2026-06-11T17:22:31.247Z'
+  trace_verdict: pass
+  agent_version: v0.0.5
+  difficulty: medium

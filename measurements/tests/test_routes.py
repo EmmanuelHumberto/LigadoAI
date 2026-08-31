@@ -74,6 +74,13 @@ async def _test_measurement_session_lifecycle():
         ).json()
         session_id = created["id"]
 
+        identified = (
+            await client.put(
+                f"/measurements/sessions/{session_id}/source-identity",
+                json={"source_session_id": "med_20260707_004430_98fbcc"},
+            )
+        ).json()
+
         added = (
             await client.post(
                 f"/measurements/sessions/{session_id}/snapshots",
@@ -103,6 +110,7 @@ async def _test_measurement_session_lifecycle():
         ).json()
 
     assert created["status"] == "created"
+    assert identified["header"]["source_session_id"] == "med_20260707_004430_98fbcc"
     assert added["accepted"] == 4
     assert added["rejected"] == 1
     assert len(snapshots["snapshots"]) == 5
@@ -179,3 +187,84 @@ async def _test_measurement_routes_require_token_when_configured():
 
     assert unauthorized.status_code == 401
     assert authorized.status_code == 200
+
+
+def test_electromechanical_contracts_are_validated_and_idempotent():
+    asyncio.run(_test_electromechanical_contracts_are_validated_and_idempotent())
+
+
+async def _test_electromechanical_contracts_are_validated_and_idempotent():
+    app = _app()
+    observation = {
+        "type": "electromechanical_observation_frame",
+        "version": 3,
+        "timestamp_us": 1000,
+        "valid": True,
+        "channels": {},
+        "hall": {},
+        "power": {},
+        "vibration": {},
+    }
+    correlation = {
+        "type": "electromechanical_correlation_frame",
+        "version": 4,
+        "timestamp_us": 1100,
+        "valid": True,
+        "profile": {},
+        "axes": [],
+        "physical_signature": {},
+        "closure": {},
+        "relation_count": 0,
+        "relations": [],
+    }
+    invalid_version = {**observation, "version": 2, "timestamp_us": 1200}
+
+    async with _transport_client(app) as client:
+        created = (
+            await client.post(
+                "/measurements/sessions",
+                json={"header": {"verticais": ["signature"]}},
+            )
+        ).json()
+        endpoint = f"/measurements/sessions/{created['id']}/snapshots"
+        first = (
+            await client.post(
+                endpoint,
+                json={"snapshots": [observation, correlation, invalid_version]},
+            )
+        ).json()
+        repeated = (
+            await client.post(
+                endpoint,
+                json={"snapshots": [observation, correlation, invalid_version]},
+            )
+        ).json()
+        linked = (
+            await client.post(
+                f"/measurements/sessions/{created['id']}/capture-link",
+                json={
+                    "capture_session_id": "00000000-0000-0000-0000-000000000456"
+                },
+            )
+        ).json()
+        relinked = (
+            await client.post(
+                f"/measurements/sessions/{created['id']}/capture-link",
+                json={
+                    "capture_session_id": "00000000-0000-0000-0000-000000000456"
+                },
+            )
+        ).json()
+
+    assert first["accepted"] == 2
+    assert first["rejected"] == 1
+    assert first["duplicates"] == 0
+    assert first["session"]["total_snapshots"] == 3
+    assert repeated["accepted"] == 0
+    assert repeated["rejected"] == 0
+    assert repeated["duplicates"] == 3
+    assert repeated["session"]["total_snapshots"] == 3
+    assert linked["projected"] == 1
+    assert linked["already_projected"] == 0
+    assert relinked["projected"] == 0
+    assert relinked["already_projected"] == 1

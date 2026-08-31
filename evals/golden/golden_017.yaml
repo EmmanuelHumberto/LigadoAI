@@ -1,0 +1,12 @@
+id: golden_017
+input:
+  request: fale sobre complemento de 2 no livro do Tocci
+expected:
+  contains: []
+  category: from-trace
+metadata:
+  source: trace:f32f8f84-4ffe-469d-bb29-b2887ecfb7ef
+  promoted_at: '2026-06-11T03:15:32.521Z'
+  trace_verdict: pass
+  agent_version: v0.0.5
+  difficulty: medium

@@ -1,0 +1,72 @@
+id: golden_023
+input:
+  request: "=== SOLICITA\xC7\xC3O DE DIAGN\xD3STICO T\xC9CNICO ===\nM\xE1quina: DKLAB\
+    \ W1 PRO\nTipo de coleta: desempenho\nObserva\xE7\xF5es do operador: .\n\nTotal\
+    \ de snapshots coletados: 558\nDistribui\xE7\xE3o por tipo:\n  - hall_snapshot:\
+    \ 280 snapshots\n  - power_snapshot: 108 snapshots\n  - course_snapshot: 107 snapshots\n\
+    \  - electromechanical_signature: 44 snapshots\n  - vibration_snapshot: 19 snapshots\n\
+    \nAmostras de cada tipo de medi\xE7\xE3o (at\xE9 2 por tipo):\n\n  [course_snapshot]\
+    \ \u2014 amostra de 107 snapshots\n    center_field_uT: 738\n    center_position_um:\
+    \ 2951\n    compensated_delta_field_uT: 526\n    course_mm: 2.407\n    delta_field_uT:\
+    \ 526\n    displacement_mm: 1.203\n    position_delta_um: 2404\n    position_spread_um:\
+    \ 453\n    quality_permille: 1000\n    sample_count: 40\n    snapshot_kind: estimated\n\
+    \    spread_field_uT: 0\n    timestamp_us: 211932229\n    window_span_us: 2339172\n\
+    \n  [electromechanical_signature] \u2014 amostra de 44 snapshots\n    armature_resistance_measured:\
+    \ True\n    armature_resistance_mohm: 7200\n    bemf_electrical_mv: 7403\n   \
+    \ bemf_electrical_valid: True\n    bemf_error_permille: 27\n    bemf_model_mv:\
+    \ 7615\n    bemf_model_valid: True\n    bemf_residual_mv: -212\n    bemf_residual_valid:\
+    \ True\n    bus_voltage_mv: 8008\n    corrected_magnetic_field_uT: 580\n    course_age_us:\
+    \ 154427\n    course_fresh: True\n    course_mm: 2.417\n    course_valid: True\n\
+    \    efficiency_permille: 757\n    efficiency_valid: True\n    electrical_model_valid:\
+    \ True\n    electrical_power_mw: 673\n    equivalent_resistance_error_permille:\
+    \ 350\n    equivalent_resistance_mohm: 4678\n    equivalent_resistance_valid:\
+    \ True\n    hall_age_us: 103840\n    hall_fresh: True\n    magnetic_age_us: 9763\n\
+    \    magnetic_field_uT: 1240\n    magnetic_fresh: True\n    magnetic_valid: True\n\
+    \    mechanical_equivalent_load_permille: 211\n    mechanical_equivalent_load_valid:\
+    \ True\n    mechanical_model_valid: True\n    mechanical_power_mw: 510\n    mechanical_power_valid:\
+    \ True\n    motor_current_ma: 84\n    motor_model_valid: True\n    omega_mrad_s:\
+    \ 753984\n    power_age_us: 184847\n    power_fresh: True\n    profile_id: xinhe_2016_12v\n\
+    \    profile_label: Xinhe 2016 12V\n    quality_permille: 880\n    rpm_cross_error_permille:\
+    \ 0\n    rpm_cross_error_valid: False\n    rpm_hall: 7200\n    rpm_mpu: 0\n  \
+    \  timestamp_us: 212356652\n    torque_load_permille: 41\n    torque_uNm: 677\n\
+    \    torque_valid: True\n    vibration_age_us: 986859\n    vibration_fresh: False\n\
+    \    vibration_model_valid: False\n    vibration_peak_mg: 0\n    vibration_rms_mg:\
+    \ 0\n    vibration_valid: False\n    window_max_skew_us: 175084\n    window_valid:\
+    \ True\n\n  [hall_snapshot] \u2014 amostra de 280 snapshots\n    duty_high_kind:\
+    \ inferred\n    duty_high_permille: 422\n    duty_kind: inferred\n    duty_low_kind:\
+    \ inferred\n    duty_low_permille: 578\n    duty_permille: 422\n    frequency_hz:\
+    \ 121\n    frequency_kind: inferred\n    period_kind: inferred\n    period_us:\
+    \ 8231\n    rpm_inferred: 7260\n    rpm_kind: inferred\n    snapshot_kind: inferred\n\
+    \    stroke_count: 22484\n    stroke_count_kind: direct\n    timestamp_us: 211832378\n\
+    \    toff_kind: inferred\n    toff_us: 4756\n    ton_kind: inferred\n    ton_us:\
+    \ 3475\n\n  [power_snapshot] \u2014 amostra de 108 snapshots\n    bus_voltage_kind:\
+    \ direct\n    bus_voltage_mv: 8004\n    current_direction: load_to_source\n  \
+    \  current_direction_kind: inferred\n    current_kind: inferred\n    current_ma:\
+    \ -84\n    power_kind: inferred\n    power_mw: 678\n    shunt_voltage_kind: direct\n\
+    \    shunt_voltage_uv: -8470\n    snapshot_kind: inferred\n    timestamp_us: 211910948\n\
+    \n  [vibration_snapshot] \u2014 amostra de 19 snapshots\n    copied_sample_count:\
+    \ 148\n    crest_factor_permille: 1231\n    dominant_frequency_hz: 121\n    dominant_frequency_valid:\
+    \ True\n    dominant_rms_axis: z\n    expected_sample_count: 167\n    future_sample_count:\
+    \ 0\n    gyro_rms_norm_mdps: 0\n    gyro_rms_x_mdps: 0\n    gyro_rms_y_mdps: 0\n\
+    \    gyro_rms_z_mdps: 0\n    gyro_valid: False\n    invalid_sample_count: 0\n\
+    \    latest_sample_age_us: 1846\n    max_gap_us: 30182\n    old_sample_count:\
+    \ 1\n    orientation_valid: True\n    p2p_norm_mg: 1155\n    peak_norm_mg: 579\n\
+    \    pitch_cdeg: 2974\n    quality_permille: 1000\n    requested_window_us: 500000\n\
+    \    rms_norm_mg: 470\n    rms_x_mg: 252\n    rms_y_mg: 90\n    rms_z_mg: 387\n\
+    \    roll_cdeg: -17693\n    rpm_inferred: 7260\n    sample_count: 148\n    timestamp_us:\
+    \ 211369793\n    window_anchor_us: 211369793\n    window_report_valid: True\n\
+    \    window_span_us: 498157\n    window_truncated: False\n\n---\nCom base nos\
+    \ dados acima e nos documentos t\xE9cnicos indexados\n(datasheets, ordens de servi\xE7\
+    o, manuais), gere um diagn\xF3stico\nt\xE9cnico estruturado com:\n1. An\xE1lise\
+    \ dos valores medidos\n2. Poss\xEDveis causas (baseadas em OS similares se dispon\xED\
+    veis)\n3. Recomenda\xE7\xF5es de manuten\xE7\xE3o\n4. N\xEDvel de confian\xE7\
+    a do diagn\xF3stico"
+expected:
+  contains: []
+  category: from-trace
+metadata:
+  source: trace:b58b0a22-e133-4662-80ae-040448afd354
+  promoted_at: '2026-06-22T20:24:31.669Z'
+  trace_verdict: pass
+  agent_version: v0.0.5
+  difficulty: medium

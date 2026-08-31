@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from typing import Any
 
 from runtime.protocols import BaseTechnique, Context, Document, Stage
@@ -131,10 +132,25 @@ def _run_async(awaitable, *, timeout_seconds: float):
     async def _with_timeout():
         return await asyncio.wait_for(awaitable, timeout=timeout_seconds)
 
-    try:
-        return asyncio.run(_with_timeout())
-    except RuntimeError as exc:
-        raise RuntimeError("rag dense retriever requires a synchronous execution context") from exc
+    result: list[Any] = []
+    errors: list[BaseException] = []
+
+    def run() -> None:
+        try:
+            result.append(asyncio.run(_with_timeout()))
+        except BaseException as exc:  # propagated on the caller thread
+            errors.append(exc)
+
+    thread = threading.Thread(target=run, name="rag-dense", daemon=True)
+    thread.start()
+    thread.join(timeout=timeout_seconds + 1.0)
+    if thread.is_alive():
+        raise TimeoutError("rag dense retriever timed out")
+    if errors:
+        raise errors[0]
+    if not result:
+        raise RuntimeError("rag dense retriever returned no result")
+    return result[0]
 
 
 async def _retrieve_and_close(

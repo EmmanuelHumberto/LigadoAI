@@ -10,6 +10,8 @@ from dataclasses import replace
 from uuid import UUID
 
 from measurements.domain import (
+    AddSnapshotsResult,
+    CaptureProjectionResult,
     MeasurementSession,
     MeasurementSnapshot,
     MeasurementStatus,
@@ -22,6 +24,8 @@ class InMemoryMeasurementRepository:
     def __init__(self) -> None:
         self._sessions: dict[UUID, MeasurementSession] = {}
         self._snapshots: dict[UUID, list[MeasurementSnapshot]] = {}
+        self._capture_links: dict[UUID, UUID] = {}
+        self._projected_snapshots: set[UUID] = set()
 
     async def create_session(self, session: MeasurementSession) -> MeasurementSession:
         self._sessions[session.id] = session
@@ -38,12 +42,14 @@ class InMemoryMeasurementRepository:
         self,
         session_id: UUID,
         snapshots: list[MeasurementSnapshot],
-    ) -> MeasurementSession | None:
+    ) -> AddSnapshotsResult | None:
         session = self._sessions.get(session_id)
         if session is None:
             return None
         existing = self._snapshots.setdefault(session_id, [])
-        existing.extend(snapshots)
+        existing_ids = {snapshot.id for snapshot in existing}
+        inserted = [snapshot for snapshot in snapshots if snapshot.id not in existing_ids]
+        existing.extend(inserted)
         updated = replace(
             session,
             status=MeasurementStatus.CAPTURED,
@@ -57,10 +63,57 @@ class InMemoryMeasurementRepository:
             updated_at=utcnow(),
         )
         self._sessions[session_id] = updated
-        return updated
+        return AddSnapshotsResult(
+            session=updated,
+            inserted_ids=frozenset(snapshot.id for snapshot in inserted),
+        )
 
     async def list_snapshots(self, session_id: UUID) -> list[MeasurementSnapshot]:
         return list(self._snapshots.get(session_id, []))
+
+    async def set_source_session_id(
+        self,
+        session_id: UUID,
+        source_session_id: str,
+    ) -> MeasurementSession | None:
+        session = self._sessions.get(session_id)
+        if session is None:
+            return None
+        current = session.header.source_session_id
+        if current and current != source_session_id:
+            raise ValueError("measurement session has another source_session_id")
+        updated = replace(
+            session,
+            header=replace(session.header, source_session_id=source_session_id),
+            updated_at=utcnow(),
+        )
+        self._sessions[session_id] = updated
+        return updated
+
+    async def link_capture_session(
+        self,
+        session_id: UUID,
+        capture_session_id: UUID,
+    ) -> CaptureProjectionResult | None:
+        if session_id not in self._sessions:
+            return None
+        previous = self._capture_links.get(session_id)
+        if previous is not None and previous != capture_session_id:
+            raise ValueError("measurement session is linked to another capture")
+        self._capture_links[session_id] = capture_session_id
+        candidates = [
+            snapshot
+            for snapshot in self._snapshots.get(session_id, [])
+            if snapshot.status == SnapshotValidationStatus.VALID
+            and snapshot.type == "electromechanical_correlation_frame"
+        ]
+        pending = [item for item in candidates if item.id not in self._projected_snapshots]
+        self._projected_snapshots.update(item.id for item in pending)
+        return CaptureProjectionResult(
+            capture_session_id=capture_session_id,
+            projected=len(pending),
+            already_projected=len(candidates) - len(pending),
+        )
 
     async def save_diagnostic(
         self,

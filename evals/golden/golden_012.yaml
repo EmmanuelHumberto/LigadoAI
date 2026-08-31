@@ -1,0 +1,13 @@
+id: golden_012
+input:
+  request: "fa\xE7a um resumo sobre amplificadores operacionais de malvino volume\
+    \ 2"
+expected:
+  contains: []
+  category: from-trace
+metadata:
+  source: trace:d02b25d6-50bb-4d51-8eae-187955eba3a9
+  promoted_at: '2026-06-10T22:49:33.908Z'
+  trace_verdict: pass
+  agent_version: v0.0.5
+  difficulty: medium

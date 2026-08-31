@@ -1,0 +1,12 @@
+id: golden_014
+input:
+  request: cous liste todos os modelos de maquinas em Service_Order
+expected:
+  contains: []
+  category: from-trace
+metadata:
+  source: trace:b70f8c78-a6e6-492d-8469-b6e8a4bb4e11
+  promoted_at: '2026-06-10T23:42:05.443Z'
+  trace_verdict: pass
+  agent_version: v0.0.5
+  difficulty: medium

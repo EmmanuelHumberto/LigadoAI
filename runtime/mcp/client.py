@@ -158,14 +158,16 @@ def list_tools_for_agent(
             _catalog_cache[agent_id] = _CachedCatalog(tools=[], fetched_at=time.time())
         return []
 
-    bridge = _LoopBridge.get()
     discovered: list[DiscoveredTool] = []
     for srv in servers:
         try:
-            tools = bridge.run(
-                _discover_tools_for_server(srv),
-                timeout=timeout_s,
-            )
+            if (srv.transport or "").lower() == "internal":
+                tools = _discover_internal_tools(srv.name)
+            else:
+                tools = _LoopBridge.get().run(
+                    _discover_tools_for_server(srv),
+                    timeout=timeout_s,
+                )
         except Exception as e:
             logger.warning(
                 "mcp server %s/%s discovery failed (%s)", agent_id, srv.name, e,
@@ -198,6 +200,9 @@ def call_tool(
     server = next((s for s in servers if s.name == server_name), None)
     if server is None:
         raise RuntimeError(f"mcp_server_not_found: {server_name}")
+
+    if (server.transport or "").lower() == "internal":
+        return _call_internal_tool(server_name, tool_name, arguments)
 
     bridge = _LoopBridge.get()
     return bridge.run(
@@ -301,6 +306,9 @@ def _normalize_streams(streams):
 
 
 async def _discover_tools_for_server(server) -> list[DiscoveredTool]:
+    if (server.transport or "").lower() == "internal":
+        return _discover_internal_tools(server.name)
+
     from mcp import ClientSession
 
     out: list[DiscoveredTool] = []
@@ -323,6 +331,58 @@ async def _discover_tools_for_server(server) -> list[DiscoveredTool]:
                     )
                 )
     return out
+
+
+def _discover_internal_tools(server_name: str) -> list[DiscoveredTool]:
+    if server_name != "cous_facts":
+        raise RuntimeError(f"unknown internal MCP server: {server_name}")
+    from runtime.cognition.mcp_server import TOOLS
+
+    return [
+        DiscoveredTool(
+            server_name=server_name,
+            tool_name=tool.name,
+            qualified_name=f"{server_name}__{tool.name}",
+            description=tool.description or "",
+            input_schema=tool.inputSchema or {},
+        )
+        for tool in TOOLS
+    ]
+
+
+def _call_internal_tool(
+    server_name: str,
+    tool_name: str,
+    arguments: dict[str, Any],
+) -> str:
+    if server_name != "cous_facts":
+        raise RuntimeError(f"unknown internal MCP server: {server_name}")
+    from runtime.cognition.mcp_server import invoke_tool
+
+    result: list[str] = []
+    errors: list[BaseException] = []
+
+    def run() -> None:
+        try:
+            result.append(asyncio.run(invoke_tool(tool_name, arguments)))
+        except BaseException as exc:  # propagated on the caller thread
+            errors.append(exc)
+
+    thread = threading.Thread(target=run, name=f"mcp-{server_name}", daemon=True)
+    thread.start()
+    thread.join(timeout=10.0)
+    if thread.is_alive():
+        name = qualified_tool_name(server_name, tool_name)
+        raise TimeoutError(f"internal MCP tool timed out: {name}")
+    if errors:
+        raise errors[0]
+    if not result:
+        raise RuntimeError("internal MCP tool returned no result")
+    return result[0]
+
+
+def qualified_tool_name(server_name: str, tool_name: str) -> str:
+    return f"{server_name}__{tool_name}"
 
 
 async def _invoke_tool_for_server(

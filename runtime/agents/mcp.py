@@ -42,7 +42,7 @@ _FILENAME = "mcp.json"
 # stdio = subprocess (local/OSS); sse = Server-Sent Events; http =
 # streamable HTTP (modern MCP HTTP transport). The latter two cover
 # hosted MCP servers (Linear, Slack, etc).
-_VALID_TRANSPORTS = ("stdio", "sse", "http")
+_VALID_TRANSPORTS = ("stdio", "sse", "http", "internal")
 
 
 @dataclass

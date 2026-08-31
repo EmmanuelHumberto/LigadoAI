@@ -1,0 +1,13 @@
+id: golden_025
+input:
+  request: "compare duas Ordens de servi\xE7o e panas duas que tenham DKLB E EZ com\
+    \ o mesmo defeito"
+expected:
+  contains: []
+  category: from-trace
+metadata:
+  source: trace:3bdbec40-4242-47d9-b46b-79b399ab7028
+  promoted_at: '2026-06-23T00:13:07.527Z'
+  trace_verdict: pass
+  agent_version: v0.0.5
+  difficulty: medium

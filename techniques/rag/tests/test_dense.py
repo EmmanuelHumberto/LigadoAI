@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from uuid import uuid4
 
@@ -71,6 +72,20 @@ def test_dense_returns_docs_from_knowledge_search():
     assert top.metadata["source"].endswith("faulhaber-2224.md")
     assert top.metadata["manufacturer"] == "Faulhaber"
     assert "stub" not in top.metadata
+
+
+def test_dense_can_run_inside_existing_event_loop():
+    retriever = _DenseRetriever(knobs={"k": 3})
+    retriever._search = _FakeKnowledgeSearch()
+    ctx = Context(request="Faulhaber 2224", documents=[])
+
+    async def execute_from_runtime_loop():
+        retriever.execute(ctx)
+
+    asyncio.run(execute_from_runtime_loop())
+
+    assert len(ctx.documents) == 1
+    assert "2224" in ctx.documents[0].content
 
 
 def test_dense_adds_catalog_for_inventory_request():

@@ -1,0 +1,13 @@
+id: golden_024
+input:
+  request: "porque o motor com tens\xE3o mais baixa 4V tem pode ter uma corrente maior\
+    \ que em 8V?"
+expected:
+  contains: []
+  category: from-trace
+metadata:
+  source: trace:210e39aa-ba7f-4d23-a1da-639056c2b2ce
+  promoted_at: '2026-06-22T20:47:29.507Z'
+  trace_verdict: pass
+  agent_version: v0.0.5
+  difficulty: medium

@@ -1,0 +1,12 @@
+id: golden_016
+input:
+  request: med_20260611_004846_f8ff6e
+expected:
+  contains: []
+  category: from-trace
+metadata:
+  source: trace:453b510a-6db2-4b2b-bbf5-71b5f0f27f2f
+  promoted_at: '2026-06-11T01:25:44.395Z'
+  trace_verdict: pass
+  agent_version: v0.0.5
+  difficulty: medium

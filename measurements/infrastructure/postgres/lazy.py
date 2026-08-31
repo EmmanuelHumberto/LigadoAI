@@ -6,7 +6,12 @@ import asyncio
 from pathlib import Path
 from uuid import UUID
 
-from measurements.domain import MeasurementSession, MeasurementSnapshot
+from measurements.domain import (
+    AddSnapshotsResult,
+    CaptureProjectionResult,
+    MeasurementSession,
+    MeasurementSnapshot,
+)
 from measurements.infrastructure.postgres.repository import PostgresMeasurementRepository
 
 
@@ -50,11 +55,31 @@ class LazyPostgresMeasurementRepository:
         self,
         session_id: UUID,
         snapshots: list[MeasurementSnapshot],
-    ) -> MeasurementSession | None:
+    ) -> AddSnapshotsResult | None:
         return await (await self._ensure_repo()).add_snapshots(session_id, snapshots)
 
     async def list_snapshots(self, session_id: UUID) -> list[MeasurementSnapshot]:
         return await (await self._ensure_repo()).list_snapshots(session_id)
+
+    async def set_source_session_id(
+        self,
+        session_id: UUID,
+        source_session_id: str,
+    ) -> MeasurementSession | None:
+        return await (await self._ensure_repo()).set_source_session_id(
+            session_id,
+            source_session_id,
+        )
+
+    async def link_capture_session(
+        self,
+        session_id: UUID,
+        capture_session_id: UUID,
+    ) -> CaptureProjectionResult | None:
+        return await (await self._ensure_repo()).link_capture_session(
+            session_id,
+            capture_session_id,
+        )
 
     async def save_diagnostic(
         self,

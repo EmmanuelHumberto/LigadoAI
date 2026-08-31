@@ -1,0 +1,12 @@
+id: golden_022
+input:
+  request: compare o machine_manual de EZ P3-pro com o machine_manual da dklab mizar
+expected:
+  contains: []
+  category: from-trace
+metadata:
+  source: trace:d97b09b9-5696-44eb-9dc2-bf90b65c42de
+  promoted_at: '2026-06-12T01:33:51.423Z'
+  trace_verdict: pass
+  agent_version: v0.0.5
+  difficulty: medium

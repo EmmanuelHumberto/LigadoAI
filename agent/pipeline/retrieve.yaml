@@ -1,9 +1,12 @@
+# COUS v3.0 — Retrieve stage
+# Recupera top-20 chunks por similaridade semântica.
+# O rerank composite reduz para top-5 com scores compostos.
 stage: retrieve
 technique: rag
 variant: dense
 knobs:
   chunk_size: 512
-  k: 30
+  k: 20
   catalog_limit: 80
   embedder: intfloat/multilingual-e5-base
   rerank_inline: false

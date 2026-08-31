@@ -1,4 +1,6 @@
 from measurements.domain.models import (
+    AddSnapshotsResult,
+    CaptureProjectionResult,
     MeasurementHeader,
     MeasurementSession,
     MeasurementSnapshot,
@@ -9,6 +11,8 @@ from measurements.domain.models import (
 )
 
 __all__ = [
+    "AddSnapshotsResult",
+    "CaptureProjectionResult",
     "MeasurementHeader",
     "MeasurementSession",
     "MeasurementSnapshot",

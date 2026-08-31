@@ -49,7 +49,7 @@ from typing import Any, Optional
 import uvicorn
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from runtime.compiler.builder import compile_agent
 from runtime.compiler.loader import load_agent
@@ -173,6 +173,10 @@ async def lifespan(app: FastAPI):
     trace_bus.attach_loop(_asyncio.get_running_loop())
     logger.info("agent %s ready (%d stages)", cfg.version, len(pipeline.stages))
 
+    diagnosis_runtime = _state.get("diagnosis_runtime")
+    if diagnosis_runtime is not None:
+        await diagnosis_runtime.start()
+
     # P16.2 — MCP HTTP/SSE transport. Only mounted in hosted/infra
     # mode; OSS local users keep using stdio MCP via .mcp.json. The
     # session manager needs its run() context active for the whole
@@ -180,12 +184,20 @@ async def lifespan(app: FastAPI):
     if is_multi_tenant_enabled():
         from runtime.mcp.http import mcp_lifespan
         async with mcp_lifespan(_state):
-            yield
+            try:
+                yield
+            finally:
+                if diagnosis_runtime is not None:
+                    await diagnosis_runtime.stop()
         _state.clear()
         return
 
-    yield
-    _state.clear()
+    try:
+        yield
+    finally:
+        if diagnosis_runtime is not None:
+            await diagnosis_runtime.stop()
+        _state.clear()
 
 
 app = FastAPI(title="opentracy-runtime", lifespan=lifespan)
@@ -203,12 +215,28 @@ def _include_measurements_router() -> None:
     app.include_router(create_default_measurements_router())
 
 
+def _include_cous_v3_router() -> None:
+    from knowledge.cous_runtime import create_cous_v3_router_with_config
+
+    app.include_router(create_cous_v3_router_with_config())
+
+
+def _include_diagnosis_router() -> None:
+    from runtime.diagnosis.runtime import create_diagnosis_runtime_from_env
+
+    diagnosis_runtime = create_diagnosis_runtime_from_env()
+    _state["diagnosis_runtime"] = diagnosis_runtime
+    app.include_router(diagnosis_runtime.router())
+
+
 def _include_feature_routers() -> None:
     global _feature_routers_included
     if _feature_routers_included:
         return
     _include_knowledge_router()
     _include_measurements_router()
+    _include_cous_v3_router()
+    _include_diagnosis_router()
     _feature_routers_included = True
 
 
@@ -1960,6 +1988,7 @@ async def get_agent_config() -> AgentConfigView:
     key_specs = [
         ("Anthropic", "ANTHROPIC_API_KEY"),
         ("OpenAI", "OPENAI_API_KEY"),
+        ("DeepSeek", "DEEPSEEK_API_KEY"),
     ]
     keys: list[AgentKeyStatus] = []
     for name, env_var in key_specs:
@@ -3052,7 +3081,7 @@ async def export_dataset_endpoint(name: str):
     )
 
 
-@app.delete("/datasets/{name}", status_code=204)
+@app.delete("/datasets/{name}", status_code=204, response_model=None)
 async def delete_dataset_endpoint(name: str) -> None:
     """Soft-delete: mark as deleted in the registry; v<n>.json files stay
     on disk for rollback. Not a versioned mutation."""
@@ -3548,7 +3577,7 @@ def activate_agent_endpoint(agent_id: str) -> AgentActivateResponse:
     )
 
 
-@app.delete("/agents/{agent_id}", status_code=204)
+@app.delete("/agents/{agent_id}", status_code=204, response_model=None)
 def delete_agent_endpoint(agent_id: str) -> None:
     from runtime.agents.registry import delete_agent
     try:
@@ -3677,7 +3706,11 @@ def rotate_api_channel_endpoint(agent_id: str, request: Request) -> ApiChannelCo
     )
 
 
-@app.delete("/agents/{agent_id}/channels/api", status_code=204)
+@app.delete(
+    "/agents/{agent_id}/channels/api",
+    status_code=204,
+    response_model=None,
+)
 def disconnect_api_channel_endpoint(agent_id: str) -> None:
     from runtime.agents.channels import remove
     from runtime.agents.registry import get_agent
@@ -3896,7 +3929,11 @@ def update_web_channel_endpoint(
     return _web_status(agent_id, request)
 
 
-@app.delete("/agents/{agent_id}/channels/web", status_code=204)
+@app.delete(
+    "/agents/{agent_id}/channels/web",
+    status_code=204,
+    response_model=None,
+)
 def disconnect_web_channel_endpoint(agent_id: str) -> None:
     from runtime.agents.channels import remove
     from runtime.agents.registry import get_agent
@@ -4236,6 +4273,7 @@ class ApiChatRequest(BaseModel):
     request: str
     history: Optional[list[HistoryMessage]] = None
     channel: Optional[str] = None
+    session_id: Optional[str] = None
 
 
 class ApiChatResponse(BaseModel):
@@ -4244,6 +4282,9 @@ class ApiChatResponse(BaseModel):
     duration_ms: float
     success: bool
     error: Optional[str] = None
+    agent_version: Optional[str] = None
+    session_id: Optional[str] = None
+    stages: list[StageOutcome] = Field(default_factory=list)
 
 
 @app.post("/api/{agent_id}/chat", response_model=ApiChatResponse)
@@ -4297,7 +4338,11 @@ def api_chat_endpoint(
 
     history = [Message(role=m.role, content=m.content) for m in (payload.history or [])]
     executor = _state["executor"]
-    _, exec_record = executor.run(payload.request, history=history)
+    _, exec_record = executor.run(
+        payload.request,
+        history=history,
+        session_id=payload.session_id,
+    )
     trace_id = write_trace(exec_record, channel="api")
 
     return ApiChatResponse(
@@ -4306,6 +4351,22 @@ def api_chat_endpoint(
         duration_ms=exec_record.duration_ms,
         success=exec_record.success,
         error=exec_record.error,
+        agent_version=exec_record.agent_version,
+        session_id=exec_record.session_id,
+        stages=[
+            StageOutcome(
+                stage=s.stage,
+                technique=s.technique,
+                variant=s.variant,
+                duration_ms=s.duration_ms,
+                docs_in=s.docs_in,
+                docs_out=s.docs_out,
+                routing_model=s.routing_model,
+                routing_decision=s.routing_decision,
+                error=s.error,
+            )
+            for s in exec_record.stages
+        ],
     )
 
 
@@ -4470,7 +4531,11 @@ def update_mcp_server_endpoint(
     )
 
 
-@app.delete("/agents/{agent_id}/mcp/{server_name}", status_code=204)
+@app.delete(
+    "/agents/{agent_id}/mcp/{server_name}",
+    status_code=204,
+    response_model=None,
+)
 def remove_mcp_server_endpoint(agent_id: str, server_name: str) -> None:
     from runtime.agents.mcp import remove_server
     from runtime.agents.registry import get_agent
@@ -5161,7 +5226,11 @@ def create_tenant_endpoint(payload: TenantCreateRequest) -> TenantSummary:
     return _summarize_tenant(meta)
 
 
-@app.delete("/admin/tenants/{tenant_id}", status_code=204)
+@app.delete(
+    "/admin/tenants/{tenant_id}",
+    status_code=204,
+    response_model=None,
+)
 def delete_tenant_endpoint(tenant_id: str) -> Response:
     from runtime.tenants.registry import delete_tenant
     try:
@@ -5204,6 +5273,7 @@ def mint_tenant_token_endpoint(
 @app.delete(
     "/admin/tenants/{tenant_id}/tokens/{hash_prefix}",
     status_code=204,
+    response_model=None,
 )
 def revoke_tenant_token_endpoint(tenant_id: str, hash_prefix: str) -> Response:
     from runtime.tenants.registry import get_tenant
@@ -5312,6 +5382,7 @@ def set_tenant_provider_key_endpoint(
 @app.delete(
     "/admin/tenants/{tenant_id}/provider-keys/{provider}",
     status_code=204,
+    response_model=None,
 )
 def delete_tenant_provider_key_endpoint(tenant_id: str, provider: str) -> Response:
     from runtime.tenants.byok import delete_provider_key

@@ -164,9 +164,17 @@ def test_executor_uses_real_usage(monkeypatch):
     fake_mod.Anthropic = _Fake
     monkeypatch.setitem(sys.modules, "anthropic", fake_mod)
 
+    from runtime.agents import secrets
     from runtime.compiler.builder import compile_agent
     from runtime.compiler.loader import load_agent
     from runtime.executor.pipeline import PipelineExecutor
+
+    monkeypatch.setattr(secrets, "provider_for_model", lambda model: "anthropic")
+    monkeypatch.setattr(
+        secrets,
+        "get_secret",
+        lambda provider, *, agent_id=None: "sk-fake",
+    )
 
     cfg = load_agent("agent/agent.yaml")
     pipe = compile_agent(cfg)
@@ -185,11 +193,16 @@ def test_offline_pipeline_still_populates_cost(monkeypatch):
     """No API key → executor falls back to char-based estimate (the
     pre-P1.9 behavior). Cost must still be non-zero so the metrics
     tiles render."""
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-
+    from runtime.agents import secrets
     from runtime.compiler.builder import compile_agent
     from runtime.compiler.loader import load_agent
     from runtime.executor.pipeline import PipelineExecutor
+
+    monkeypatch.setattr(
+        secrets,
+        "get_secret",
+        lambda provider, *, agent_id=None: None,
+    )
 
     cfg = load_agent("agent/agent.yaml")
     pipe = compile_agent(cfg)

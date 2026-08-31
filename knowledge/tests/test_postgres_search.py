@@ -35,7 +35,11 @@ class _FakeConnection:
         return self.rows
 
 
-def test_postgres_search_builds_lexical_query_with_filters():
+def test_postgres_search_builds_lexical_query_with_filters(monkeypatch):
+    monkeypatch.setattr(
+        "knowledge.infrastructure.postgres.search._embed_query",
+        lambda query: None,
+    )
     asyncio.run(_test_postgres_search_builds_lexical_query_with_filters())
 
 

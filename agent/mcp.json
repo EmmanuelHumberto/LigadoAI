@@ -1,3 +1,13 @@
 {
-  "servers": []
+  "servers": [
+    {
+      "name": "cous_facts",
+      "transport": "internal",
+      "command": "",
+      "args": [],
+      "env": {},
+      "enabled": true,
+      "description": "Consultas somente leitura a OS, medicoes, diagnosticos e evidencias"
+    }
+  ]
 }

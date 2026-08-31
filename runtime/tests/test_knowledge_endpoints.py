@@ -1,6 +1,9 @@
 import asyncio
 
 import httpx
+from fastapi import FastAPI
+
+from knowledge.runtime import KnowledgeRuntimeConfig, create_default_knowledge_router
 
 
 def _transport_client(app) -> httpx.AsyncClient:
@@ -8,13 +11,22 @@ def _transport_client(app) -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=transport, base_url="http://test")
 
 
+def _knowledge_app() -> FastAPI:
+    app = FastAPI()
+    app.include_router(
+        create_default_knowledge_router(
+            KnowledgeRuntimeConfig(backend="memory", auth_token=None)
+        )
+    )
+    return app
+
+
 def test_runtime_exposes_knowledge_status():
     asyncio.run(_test_runtime_exposes_knowledge_status())
 
 
 async def _test_runtime_exposes_knowledge_status():
-    from runtime.server import app
-
+    app = _knowledge_app()
     async with _transport_client(app) as client:
         response = await client.get("/knowledge/status")
 
@@ -27,7 +39,7 @@ def test_runtime_exposes_knowledge_index_job_contract(tmp_path):
 
 
 async def _test_runtime_exposes_knowledge_index_job_contract(tmp_path):
-    from runtime.server import app
+    app = _knowledge_app()
 
     source = tmp_path / "doc.md"
     source.write_text(

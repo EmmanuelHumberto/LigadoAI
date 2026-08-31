@@ -1,0 +1,12 @@
+id: golden_011
+input:
+  request: "medi\xE7\xE3o com o numero de serie 7777"
+expected:
+  contains: []
+  category: from-trace
+metadata:
+  source: trace:92d583b3-2742-499a-8d25-6cea637fb86b
+  promoted_at: '2026-06-10T17:49:34.758Z'
+  trace_verdict: pass
+  agent_version: v0.0.5
+  difficulty: medium

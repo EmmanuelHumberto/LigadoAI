@@ -1,7 +1,7 @@
 import asyncio
-import os
 
 import httpx
+from fastapi import FastAPI
 
 from measurements.runtime import MeasurementsRuntimeConfig, create_default_measurements_router
 
@@ -16,15 +16,12 @@ def test_runtime_exposes_measurements_contract():
 
 
 async def _test_runtime_exposes_measurements_contract():
-    from runtime.dotenv import load_env
-    from runtime.server import _include_feature_routers, app
-
-    os.environ["OPENTRACY_MEASUREMENTS_BACKEND"] = "memory"
-    os.environ["OPENTRACY_MEASUREMENTS_AUTH_TOKEN"] = ""
-    os.environ["OPENTRACY_MEASUREMENTS_DATABASE_URL"] = ""
-    os.environ["OPENTRACY_KNOWLEDGE_AUTH_TOKEN"] = ""
-    load_env()
-    _include_feature_routers()
+    app = FastAPI()
+    app.include_router(
+        create_default_measurements_router(
+            MeasurementsRuntimeConfig(backend="memory", auth_token=None)
+        )
+    )
 
     async with _transport_client(app) as client:
         status = (await client.get("/measurements/status")).json()
@@ -52,6 +49,7 @@ async def _test_runtime_exposes_measurements_contract():
 def test_measurements_postgres_runtime_uses_knowledge_database_url(monkeypatch):
     monkeypatch.setenv("OPENTRACY_MEASUREMENTS_BACKEND", "postgres")
     monkeypatch.delenv("OPENTRACY_MEASUREMENTS_DATABASE_URL", raising=False)
+    monkeypatch.delenv("OPENTRACY_MEASUREMENTS_AUTH_TOKEN", raising=False)
     monkeypatch.setenv("OPENTRACY_KNOWLEDGE_DATABASE_URL", "postgres://local/test")
     monkeypatch.setenv("OPENTRACY_KNOWLEDGE_AUTH_TOKEN", "secret")
 

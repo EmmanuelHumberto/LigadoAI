@@ -1,0 +1,12 @@
+id: golden_015
+input:
+  request: Cous busque por biomaser e p90
+expected:
+  contains: []
+  category: from-trace
+metadata:
+  source: trace:78c18675-a84c-4491-b0bc-3707a8a25ee9
+  promoted_at: '2026-06-11T00:15:17.231Z'
+  trace_verdict: pass
+  agent_version: v0.0.5
+  difficulty: medium

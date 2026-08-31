@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 
 class MeasurementHeaderSchema(BaseModel):
+    source_session_id: str = ""
     fabricante: str = ""
     modelo: str = ""
     numero_serie: str = ""
@@ -51,10 +52,25 @@ class AddSnapshotsRequestSchema(BaseModel):
     snapshots: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class LinkCaptureRequestSchema(BaseModel):
+    capture_session_id: UUID
+
+
+class SetSourceIdentityRequestSchema(BaseModel):
+    source_session_id: str = Field(min_length=1, max_length=160)
+
+
+class LinkCaptureResponseSchema(BaseModel):
+    capture_session_id: UUID
+    projected: int = 0
+    already_projected: int = 0
+
+
 class AddSnapshotsResponseSchema(BaseModel):
     session: MeasurementSessionSchema
     accepted: int = 0
     rejected: int = 0
+    duplicates: int = 0
     errors: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -80,4 +96,3 @@ class MeasurementDiagnosticResponseSchema(BaseModel):
 class MeasurementReportResponseSchema(BaseModel):
     session: MeasurementSessionSchema
     markdown: str
-

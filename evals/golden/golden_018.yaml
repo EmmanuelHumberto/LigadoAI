@@ -1,0 +1,16 @@
+id: golden_018
+input:
+  request: "Cous o duty cycle nesse cenario n\xE3o tem haver com o PWM e sim com o\
+    \ ciclo mecanico medido pelo hall 177, Esse sensor \xE9 ativado por uma ima na\
+    \ ponta da agulha do cartucho. Entt\xE3o o duty \xE9 uma medida do ciclo ativo\
+    \ do sensor e pode ser regulado aumento au duminuindo a eposi\xE7\xE3o da agulha\
+    \ pelo grip da maquina"
+expected:
+  contains: []
+  category: from-trace
+metadata:
+  source: trace:b6935b59-d18e-4d6d-b8b4-f43f6445666c
+  promoted_at: '2026-06-11T17:11:51.691Z'
+  trace_verdict: pass
+  agent_version: v0.0.5
+  difficulty: medium

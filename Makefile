@@ -88,7 +88,7 @@ runtime:
 	$(RUNTIME_ENV) uv run python -m runtime.server
 
 backend:
-	cd $(BACKEND_DIR) && $(BACKEND_ENV) npm run dev
+	cd $(BACKEND_DIR) && $(BACKEND_ENV) npm run start
 
 ui:
 	cd $(UI_DIR) && $(UI_ENV) npm run dev

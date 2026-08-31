@@ -29,6 +29,7 @@ class SnapshotValidationStatus(StrEnum):
 
 @dataclass(frozen=True)
 class MeasurementHeader:
+    source_session_id: str = ""
     fabricante: str = ""
     modelo: str = ""
     numero_serie: str = ""
@@ -75,7 +76,19 @@ class MeasurementSnapshot:
 
 
 @dataclass(frozen=True)
+class AddSnapshotsResult:
+    session: MeasurementSession
+    inserted_ids: frozenset[UUID] = field(default_factory=frozenset)
+
+
+@dataclass(frozen=True)
+class CaptureProjectionResult:
+    capture_session_id: UUID
+    projected: int = 0
+    already_projected: int = 0
+
+
+@dataclass(frozen=True)
 class SnapshotValidationResult:
     approved: bool
     errors: list[dict[str, Any]] = field(default_factory=list)
-

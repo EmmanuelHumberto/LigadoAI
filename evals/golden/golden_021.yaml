@@ -1,0 +1,12 @@
+id: golden_021
+input:
+  request: como resetar a bateria powerbolt
+expected:
+  contains: []
+  category: from-trace
+metadata:
+  source: trace:4ac0554b-8cc7-4bb8-838b-0105f193ae64
+  promoted_at: '2026-06-12T01:21:11.114Z'
+  trace_verdict: pass
+  agent_version: v0.0.5
+  difficulty: medium

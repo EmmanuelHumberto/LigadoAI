@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from secrets import compare_digest
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 
@@ -12,6 +13,8 @@ from measurements.api.schemas import (
     AddSnapshotsRequestSchema,
     AddSnapshotsResponseSchema,
     CreateMeasurementSessionRequestSchema,
+    LinkCaptureRequestSchema,
+    LinkCaptureResponseSchema,
     MeasurementDiagnosticResponseSchema,
     MeasurementHeaderSchema,
     MeasurementReportResponseSchema,
@@ -19,6 +22,7 @@ from measurements.api.schemas import (
     MeasurementSessionsResponseSchema,
     MeasurementSnapshotSchema,
     MeasurementSnapshotsResponseSchema,
+    SetSourceIdentityRequestSchema,
 )
 from measurements.domain import (
     MeasurementHeader,
@@ -71,6 +75,28 @@ def create_measurements_router(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")
         return _session_response(session)
 
+    @router.put(
+        "/sessions/{session_id}/source-identity",
+        response_model=MeasurementSessionSchema,
+    )
+    async def set_source_identity(
+        session_id: UUID,
+        payload: SetSourceIdentityRequestSchema,
+    ) -> MeasurementSessionSchema:
+        try:
+            session = await repository.set_source_session_id(
+                session_id,
+                payload.source_session_id.strip(),
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"code": "source_identity_conflict", "message": str(exc)},
+            ) from exc
+        if session is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")
+        return _session_response(session)
+
     @router.post(
         "/sessions/{session_id}/snapshots",
         response_model=AddSnapshotsResponseSchema,
@@ -88,6 +114,7 @@ def create_measurements_router(
             validation = validator.validate(raw)
             raw_timestamp = raw.get("timestamp_us")
             snapshot = MeasurementSnapshot(
+                id=_snapshot_id(session_id, raw),
                 session_id=session_id,
                 data=dict(raw),
                 timestamp_us=raw_timestamp if isinstance(raw_timestamp, int) else None,
@@ -101,17 +128,25 @@ def create_measurements_router(
             )
             snapshots.append(snapshot)
             errors.extend(validation.errors)
-        updated = await repository.add_snapshots(session_id, snapshots)
-        if updated is None:
+        persistence = await repository.add_snapshots(session_id, snapshots)
+        if persistence is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")
+        inserted = persistence.inserted_ids
         return AddSnapshotsResponseSchema(
-            session=_session_response(updated),
+            session=_session_response(persistence.session),
             accepted=sum(
-                1 for snapshot in snapshots if snapshot.status == SnapshotValidationStatus.VALID
+                1
+                for snapshot in snapshots
+                if snapshot.id in inserted
+                and snapshot.status == SnapshotValidationStatus.VALID
             ),
             rejected=sum(
-                1 for snapshot in snapshots if snapshot.status == SnapshotValidationStatus.INVALID
+                1
+                for snapshot in snapshots
+                if snapshot.id in inserted
+                and snapshot.status == SnapshotValidationStatus.INVALID
             ),
+            duplicates=sum(1 for snapshot in snapshots if snapshot.id not in inserted),
             errors=errors,
         )
 
@@ -126,6 +161,32 @@ def create_measurements_router(
         snapshots = await repository.list_snapshots(session_id)
         return MeasurementSnapshotsResponseSchema(
             snapshots=[_snapshot_response(snapshot) for snapshot in snapshots]
+        )
+
+    @router.post(
+        "/sessions/{session_id}/capture-link",
+        response_model=LinkCaptureResponseSchema,
+    )
+    async def link_capture(
+        session_id: UUID,
+        payload: LinkCaptureRequestSchema,
+    ) -> LinkCaptureResponseSchema:
+        try:
+            projection = await repository.link_capture_session(
+                session_id,
+                payload.capture_session_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"code": "capture_link_conflict", "message": str(exc)},
+            ) from exc
+        if projection is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")
+        return LinkCaptureResponseSchema(
+            capture_session_id=projection.capture_session_id,
+            projected=projection.projected,
+            already_projected=projection.already_projected,
         )
 
     @router.post(
@@ -178,6 +239,21 @@ def create_measurements_router(
             )
 
     return router
+
+
+def _snapshot_id(session_id: UUID, payload: dict) -> UUID:
+    explicit_id = str(payload.get("event_id") or payload.get("source_event_id") or "").strip()
+    if explicit_id:
+        identity = explicit_id
+    else:
+        identity = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+    return uuid5(NAMESPACE_URL, f"tma:{session_id}:{identity}")
 
 
 def _bearer_auth_dependency(expected_token: str) -> Callable[[str | None], None]:

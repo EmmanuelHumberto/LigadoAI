@@ -1,0 +1,12 @@
+id: golden_013
+input:
+  request: "Cous analise quantas Service_Order s\xE3o troca de motor"
+expected:
+  contains: []
+  category: from-trace
+metadata:
+  source: trace:de87aec5-5e50-4b33-8a5a-176742352589
+  promoted_at: '2026-06-10T23:13:52.911Z'
+  trace_verdict: pass
+  agent_version: v0.0.5
+  difficulty: medium

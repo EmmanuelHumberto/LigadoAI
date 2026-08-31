@@ -120,13 +120,88 @@ class _CrossEncoderReranker:
         return context
 
 
+class _CompositeReranker:
+    """COUS v3.0 — Composite scoring reranker.
+
+    Combina 4 dimensões de score:
+      S_final = w_sem·S_sem + w_doc·S_doc + w_hist·S_hist + w_caus·S_caus
+
+    Configuração (knobs):
+      - weights: dict com pesos por dimensão (default: COUS v3)
+      - top_n: máximo de documentos no resultado final (default: 5)
+      - diversity: dict com max_per_document e exceptions
+    """
+
+    def __init__(self, knobs: dict[str, Any]) -> None:
+        from techniques.scoring import DEFAULT_WEIGHTS, compute_composite_score, apply_diversity_rule
+
+        self.weights: dict[str, float] = dict(DEFAULT_WEIGHTS)
+        user_weights = knobs.get("weights", {})
+        if isinstance(user_weights, dict):
+            self.weights.update({k: float(v) for k, v in user_weights.items()})
+
+        self.top_n: int = int(knobs.get("top_n", 5))
+        self.diversity_config: dict[str, Any] = dict(knobs.get("diversity", {}))
+        self.max_per_document: int = int(self.diversity_config.get("max_per_document", 2))
+        self.exceptions: list[dict[str, Any]] = list(
+            self.diversity_config.get("exceptions", [])
+        )
+
+    def execute(self, context: Context) -> Context:
+        from techniques.scoring import compute_composite_score, apply_diversity_rule
+
+        docs = context.documents
+        if not docs:
+            return context
+
+        # Acessar cadeia causal ativa do state (se disponível)
+        causal_state = context.state.get("causal", {})
+        active_chain_id = causal_state.get("active_causal_chain_id")
+        related_ids = set(causal_state.get("related_chain_ids", []))
+
+        # Calcular score composto para cada documento
+        for doc in docs:
+            composite = compute_composite_score(
+                doc,
+                doc.score,  # S_semântico (do retrieve ou cross-encoder)
+                weights=self.weights,
+                active_causal_chain_id=str(active_chain_id) if active_chain_id else None,
+                related_chain_ids=related_ids,
+            )
+            doc.score = composite
+            doc.metadata["reranked"] = True
+            doc.metadata["reranker_variant"] = "composite"
+            doc.metadata["composite_breakdown"] = {
+                "semantic": doc.metadata.get("_semantic_score", doc.score),
+                "document": doc.metadata.get("_document_score", 0.0),
+                "historical": doc.metadata.get("_history_score", 0.0),
+                "causal": doc.metadata.get("_causal_score", 0.0),
+            }
+
+        # Ordenar por score composto
+        docs.sort(key=lambda d: d.score, reverse=True)
+
+        # Aplicar regra de diversidade
+        docs = apply_diversity_rule(
+            docs,
+            max_per_document=self.max_per_document,
+            exceptions=self.exceptions,
+        )
+
+        # Truncar para top_n
+        context.documents = docs[: self.top_n]
+        return context
+
+
 class RerankingTechnique(BaseTechnique):
     name = "reranking"
-    variants = ("cross_encoder",)
+    variants = ("cross_encoder", "composite")
 
     def compile(self, variant: str, knobs: dict[str, Any]) -> Stage:
         if variant not in self.variants:
             raise ValueError(
                 f"reranking: unknown variant {variant!r}; expected one of {self.variants}"
             )
+        if variant == "composite":
+            return _CompositeReranker(knobs)
         return _CrossEncoderReranker(knobs)
