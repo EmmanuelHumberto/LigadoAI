@@ -1,0 +1,12 @@
+id: golden_026
+input:
+  request: "cous n\xE3o estou conseguindo fazer o diagnostico dessa ID med_20260828_162505_ce7852"
+expected:
+  contains: []
+  category: from-trace
+metadata:
+  source: trace:6f2af3ac-3f29-4a79-919d-ddb9e7c2bc9c
+  promoted_at: '2026-09-01T01:12:03.704Z'
+  trace_verdict: pass
+  agent_version: v0.0.5
+  difficulty: medium

@@ -13,6 +13,7 @@ from knowledge.api.cous_schemas import CaptureIdentityResolveRequestSchema
 from knowledge.infrastructure.postgres.cous_repository import (
     ServiceOrderNotFoundError,
     ServiceOrderSerialMismatchError,
+    _normalized_serial,
     _service_order_serial,
 )
 
@@ -58,6 +59,16 @@ def test_service_order_serial_prefers_metadata_and_supports_legacy_text():
         )
         == "P3PRO-122304516"
     )
+
+
+def test_normalized_serial_strips_color_column_and_excess_whitespace():
+    assert (
+        _normalized_serial("W1NP2403464                               COR: DOURADA")
+        == "w1np2403464"
+    )
+    assert _normalized_serial("  EP10757 040523 ") == "ep10757 040523"
+    assert _normalized_serial("P3PRO-122300799  COR: Cinza") == "p3pro-122300799"
+    assert _normalized_serial("DKNW1S90732") == "dknw1s90732"
 
 
 def test_resolve_capture_identity_route():

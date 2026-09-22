@@ -49,8 +49,20 @@ class ServiceOrderSerialMismatchError(ValueError):
     pass
 
 
+_SERIAL_COR_SUFFIX = re.compile(r"\s+COR\b.*$", re.IGNORECASE)
+
+
 def _normalized_serial(value: object) -> str:
-    return str(value or "").strip().casefold()
+    """Normaliza serial para comparação: remove coluna COR e espaços em excesso.
+
+    Documentos indexados antes da limpeza de extração podem guardar o serial
+    com a coluna ``COR`` e espaços de coluna (ex.: ``W1NP2403464   COR: DOURADA``).
+    Esta normalização torna a comparação tolerante a essa poluição sem alterar
+    espaços simples legítimos do serial (ex.: ``EP10757 040523``).
+    """
+    raw = str(value or "").strip()
+    raw = _SERIAL_COR_SUFFIX.sub("", raw)
+    return re.sub(r"\s+", " ", raw).casefold()
 
 
 def _service_order_serial(metadata: object, indexed_text: object) -> str:
