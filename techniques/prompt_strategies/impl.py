@@ -24,10 +24,13 @@ of the pipeline expects.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from pathlib import Path
 from typing import Any, Optional
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 from runtime.protocols import BaseTechnique, Context, Document, Stage
 
@@ -64,7 +67,7 @@ class _Direct:
         agent_id = get_active()
         api_key = get_secret(provider, agent_id=agent_id)
 
-        if not api_key:
+        if provider != "ollama" and not api_key:
             context.response = (
                 f"[offline] No {provider} API key set for agent {agent_id!r} — "
                 f"would have called {model} with {len(context.documents)} doc(s). "
@@ -81,7 +84,15 @@ class _Direct:
             tools = []
 
         try:
-            if provider in ("openai", "deepseek"):
+            if provider == "ollama":
+                text, usage, tool_calls = _run_ollama(
+                    model=model,
+                    system=system,
+                    user=user_msg,
+                    max_tokens=self.max_tokens,
+                    temperature=self.temperature,
+                )
+            elif provider in ("openai", "deepseek"):
                 base_url = None
                 if provider == "deepseek":
                     base_url = os.environ.get(
@@ -136,6 +147,88 @@ class _Direct:
 
 class _SdkUnavailable(RuntimeError):
     """Raised when the provider's SDK isn't importable."""
+
+
+# ---------------------------------------------------------------------------
+# Ollama
+# ---------------------------------------------------------------------------
+
+
+def _run_ollama(
+    *,
+    model: str,
+    system: str,
+    user: str,
+    max_tokens: int,
+    temperature: float,
+) -> tuple[str, Optional[dict], list[dict[str, Any]]]:
+    """Call Ollama's native chat API without requiring an API key."""
+    base_url = os.environ.get("OPENTRACY_OLLAMA_URL", "http://127.0.0.1:11434")
+    timeout = float(os.environ.get("OPENTRACY_OLLAMA_TIMEOUT_SECONDS", "180"))
+    context_window = int(os.environ.get("OPENTRACY_OLLAMA_CONTEXT_WINDOW", "8192"))
+    payload: dict[str, Any] = {
+        "model": model,
+        "stream": False,
+        "think": False,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "options": {
+            "temperature": temperature,
+            "num_predict": max_tokens,
+            "num_ctx": context_window,
+        },
+    }
+    if os.environ.get("OPENTRACY_OLLAMA_JSON", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }:
+        finding_schema = {
+            "type": "object",
+            "properties": {
+                "texto": {"type": "string"},
+                "evidencias": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": 1,
+                },
+            },
+            "required": ["texto", "evidencias"],
+            "additionalProperties": False,
+        }
+        payload["format"] = {
+            "type": "object",
+            "properties": {
+                "achados": {"type": "array", "items": finding_schema},
+                "incoerencias": {"type": "array", "items": finding_schema},
+                "confianca": {"type": "number", "minimum": 0, "maximum": 1},
+            },
+            "required": ["achados", "incoerencias", "confianca"],
+            "additionalProperties": False,
+        }
+
+    req = urllib_request.Request(
+        f"{base_url.rstrip('/')}/api/chat",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib_request.urlopen(req, timeout=timeout) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib_error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Ollama HTTP {exc.code}: {detail[:500]}") from exc
+    except (urllib_error.URLError, TimeoutError) as exc:
+        raise RuntimeError(f"Ollama indisponivel: {exc}") from exc
+
+    message = body.get("message") or {}
+    text = message.get("content") or body.get("response") or ""
+    usage = {
+        "input_tokens": int(body.get("prompt_eval_count") or 0),
+        "output_tokens": int(body.get("eval_count") or 0),
+    }
+    return text.strip(), usage, []
 
 
 # ---------------------------------------------------------------------------

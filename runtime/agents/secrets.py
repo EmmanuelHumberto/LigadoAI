@@ -364,4 +364,6 @@ def provider_for_model(model_id: str) -> Optional[str]:
         return "openai"
     if m.startswith("deepseek"):
         return "deepseek"
+    if m.startswith("qwen") or m.startswith("ollama"):
+        return "ollama"
     return None

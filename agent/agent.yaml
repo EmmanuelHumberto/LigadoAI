@@ -10,5 +10,5 @@ agent:
     memory:
       $ref: pipeline/memory.yaml
   budget:
-    max_latency_ms: 30000
+    max_latency_ms: 180000
     max_cost_usd: 0.05

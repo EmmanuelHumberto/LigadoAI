@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import types
@@ -133,6 +134,52 @@ def test_routing_default_when_missing(monkeypatch):
     assert "claude-haiku-4-5" in ctx.response
 
 
+def test_ollama_native_call_needs_no_api_key(monkeypatch):
+    captured = {}
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return json.dumps({
+                "message": {"content": '{"achados":[]}'},
+                "prompt_eval_count": 12,
+                "eval_count": 4,
+            }).encode("utf-8")
+
+    def _urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        captured["timeout"] = timeout
+        return _Response()
+
+    monkeypatch.setenv("OPENTRACY_OLLAMA_URL", "http://ollama.test:11434")
+    monkeypatch.setenv("OPENTRACY_OLLAMA_JSON", "true")
+    monkeypatch.setattr(
+        "techniques.prompt_strategies.impl.urllib_request.urlopen", _urlopen
+    )
+
+    ctx = _compile().execute(_make_ctx(request="review", model="qwen3.5:4b"))
+
+    assert ctx.response == '{"achados":[]}'
+    assert ctx.state["llm_usage"] == {
+        "input_tokens": 12,
+        "output_tokens": 4,
+        "model": "qwen3.5:4b",
+        "provider": "ollama",
+    }
+    assert captured["url"] == "http://ollama.test:11434/api/chat"
+    assert captured["payload"]["format"]["required"] == [
+        "achados", "incoerencias", "confianca",
+    ]
+    assert captured["payload"]["format"]["additionalProperties"] is False
+    assert captured["payload"]["think"] is False
+
+
 def test_executor_uses_real_usage(monkeypatch):
     """End-to-end at the executor level: when generate stashes usage,
     ExecutionRecord.tokens_in/out match the real numbers, not the
@@ -203,6 +250,7 @@ def test_offline_pipeline_still_populates_cost(monkeypatch):
         "get_secret",
         lambda provider, *, agent_id=None: None,
     )
+    monkeypatch.setattr(secrets, "provider_for_model", lambda model: "anthropic")
 
     cfg = load_agent("agent/agent.yaml")
     pipe = compile_agent(cfg)

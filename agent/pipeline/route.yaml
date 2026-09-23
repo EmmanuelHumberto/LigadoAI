@@ -3,8 +3,7 @@ stage: route
 technique: routing
 variant: small_first
 knobs:
-  confidence_threshold: 0.7
-  small: deepseek-chat
-  big: deepseek-reasoner
-  escalate_on_failure: true
-
+  confidence_threshold: 0.0
+  small: qwen3.5:4b
+  big: qwen3.5:4b
+  escalate_on_failure: false

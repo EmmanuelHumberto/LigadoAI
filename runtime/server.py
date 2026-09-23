@@ -5458,7 +5458,8 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     load_env()
     port = int(os.environ.get("OPENTRACY_RUNTIME_PORT", "8001"))
-    uvicorn.run("runtime.server:app", host="127.0.0.1", port=port, reload=False)
+    host = os.environ.get("OPENTRACY_RUNTIME_HOST", "127.0.0.1")
+    uvicorn.run("runtime.server:app", host=host, port=port, reload=False)
 
 
 if __name__ == "__main__":
