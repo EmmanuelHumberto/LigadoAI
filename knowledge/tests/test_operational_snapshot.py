@@ -78,3 +78,12 @@ def test_postgres_search_excludes_operational_records_in_both_paths():
             return []
     search = PostgresKnowledgeSearch(SimpleNamespace(acquire=lambda: Connection()))
     asyncio.run(search._semantic_search([0.1], "equipamento", 3, None))
+
+
+@pytest.mark.parametrize("reserved", [True, False])
+def test_operational_snapshot_cannot_bypass_body_validation_via_metadata(reserved):
+    request = snapshot_request()
+    request.pop("inline_text")
+    if reserved:
+        request["metadata"]["extra"]["_inline_text"] = "Unvalidated body"
+    with pytest.raises(ValidationError): KnowledgeIndexRequestSchema(**request)

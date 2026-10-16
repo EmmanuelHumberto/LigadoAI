@@ -34,6 +34,10 @@ class KnowledgeIndexRequestSchema(BaseModel):
 
     @model_validator(mode="after")
     def validate_inline_snapshot(self):
+        if "_inline_text" in self.metadata.extra:
+            raise ValueError("Reserved indexing metadata")
+        if self.source_uri.startswith("systemos://") and self.inline_text is None:
+            raise ValueError("SystemOS operational URI requires inline snapshot content")
         if self.inline_text is not None:
             from knowledge.api.cous_schemas import ServiceOrderScopeSchema
             scope = ServiceOrderScopeSchema.model_validate({
