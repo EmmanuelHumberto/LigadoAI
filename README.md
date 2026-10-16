@@ -231,3 +231,7 @@ PRs welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Auditoria cognitiva do SystemOS
+
+[Auditoria, correções e pendências de integração](docs/AUDITORIA_COGNITIVA_SYSTEMOS.md): diagnóstico v3, recuperação de conhecimento, testes e reversão da etapa de 15/10/2026.
