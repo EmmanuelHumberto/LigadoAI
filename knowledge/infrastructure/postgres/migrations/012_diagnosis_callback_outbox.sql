@@ -17,7 +17,8 @@ SET callback_status = CASE
     WHEN status = 'failed' AND result_payload IS NULL THEN 'not_available'
     ELSE callback_status
 END
-WHERE callback_attempts = 0;
+WHERE callback_attempts = 0
+  AND COALESCE(request_payload->>'delivery_mode', 'callback') <> 'polling';
 
 CREATE INDEX IF NOT EXISTS idx_dq_callback_outbox
     ON diagnosis_queue(callback_status, callback_next_attempt_at)

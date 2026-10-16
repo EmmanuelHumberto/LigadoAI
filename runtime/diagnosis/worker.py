@@ -1131,7 +1131,7 @@ class DiagnosisWorker:
                        result_payload = $2::jsonb,
                        error_message = NULL,
                        last_attempt_at = NOW(),
-                       callback_status = 'pending',
+                       callback_status = CASE WHEN request_payload->>'delivery_mode' = 'polling' THEN 'not_required' ELSE 'pending' END,
                        callback_next_attempt_at = NOW(),
                        callback_error = NULL
                    WHERE id = $1""",
@@ -1153,7 +1153,7 @@ class DiagnosisWorker:
                        error_message = $2,
                        result_payload = $3::jsonb,
                        last_attempt_at = NOW(),
-                       callback_status = 'pending',
+                       callback_status = CASE WHEN request_payload->>'delivery_mode' = 'polling' THEN 'not_required' ELSE 'pending' END,
                        callback_next_attempt_at = NOW(),
                        callback_error = NULL
                    WHERE id = $1""",

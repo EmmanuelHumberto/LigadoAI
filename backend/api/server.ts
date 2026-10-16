@@ -1,3 +1,4 @@
+import { cognitiveRouter } from '../channels/cognitive/handler'
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { logger } from 'hono/logger'
@@ -51,6 +52,8 @@ app.get('/', (c) =>
 )
 
 app.get('/health', (c) => c.json({ status: 'ok' }))
+app.route('/knowledge', cognitiveRouter)
+app.route('/v3', cognitiveRouter)
 
 // Slack OAuth + events live outside the /v1/* apiKeyAuth chain because
 // Slack itself drives these requests (browser redirect for install, the

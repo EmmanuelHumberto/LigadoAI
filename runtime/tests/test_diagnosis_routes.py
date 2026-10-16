@@ -217,3 +217,14 @@ async def test_enqueue_remains_authenticated_when_token_configured():
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post("/v3/diagnosis", json=enqueue_payload(), headers={"Authorization": "Bearer wrong"})
     assert response.status_code == 401
+
+
+@pytest.mark.parametrize("payload", [
+    {"delivery_mode": "callback", "callback_endpoint": ""},
+    {"delivery_mode": "polling", "callback_endpoint": "http://127.0.0.1:9999/test"},
+])
+def test_delivery_modes_do_not_silently_fall_back_to_callback(payload):
+    from pydantic import ValidationError
+    from runtime.diagnosis.routes import DiagnosisRequestSchema
+    with pytest.raises(ValidationError):
+        DiagnosisRequestSchema(**{**enqueue_payload(), **payload})

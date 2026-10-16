@@ -101,7 +101,7 @@ class PostgresKnowledgeSearch:
         top_k: int,
         filters: dict[str, str] | None,
     ) -> list[KnowledgeSearchResult]:
-        where_parts = ["d.status <> 'deleted'", "ke.embedding_vec IS NOT NULL"]
+        where_parts = ["d.status <> 'deleted'", "COALESCE(d.metadata->>'retrieval_eligible', d.metadata#>>'{extra,retrieval_eligible}', 'true') <> 'false'", "ke.embedding_vec IS NOT NULL"]
         vec_str = "[" + ",".join(f"{v:.8f}" for v in embedding) + "]"
         params: list[Any] = [vec_str, max(1, min(top_k, 50))]
 
@@ -165,7 +165,7 @@ def _build_lexical_query(
 ) -> tuple[str, list[Any]]:
     params: list[Any] = []
     score_parts: list[str] = []
-    where_parts = ["d.status <> 'deleted'"]
+    where_parts = ["d.status <> 'deleted'", "COALESCE(d.metadata->>'retrieval_eligible', d.metadata#>>'{extra,retrieval_eligible}', 'true') <> 'false'"]
 
     for term in terms:
         params.append(f"%{term}%")

@@ -117,6 +117,8 @@ def create_cous_v3_router(
                 service_order_number=payload.service_order_number,
                 measurement_observations=payload.measurement_observations,
                 operator_name=payload.operator_name,
+                service_order_document_id=payload.service_order_document_id,
+                capture_request_id=payload.capture_request_id,
                 service_order_scope=(payload.service_order_scope.model_dump(mode="json")
                                      if payload.service_order_scope else None),
             )

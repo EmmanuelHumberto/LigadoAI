@@ -29,6 +29,8 @@ class InMemoryKnowledgeSearch:
             document = self._repository.documents.get(document_id)
             if document is None or document.status == DocumentStatus.DELETED:
                 continue
+            if document.metadata.get("retrieval_eligible") is False or document.metadata.get("extra", {}).get("retrieval_eligible") is False:
+                continue
             if not _matches_filters(document, filters):
                 continue
             for chunk in chunks:

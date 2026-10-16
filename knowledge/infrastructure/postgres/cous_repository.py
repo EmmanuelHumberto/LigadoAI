@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import re
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid5, NAMESPACE_URL
 
 import asyncpg
 
@@ -431,12 +431,18 @@ class CousKnowledgeRepository:
         measurement_observations: str = "",
         operator_name: str = "",
         service_order_scope: dict[str, str] | None = None,
+        service_order_document_id: UUID | None = None,
+        capture_request_id: UUID | None = None,
     ) -> dict[str, UUID]:
         """Resolve/cria a identidade física e abre uma sessão de captura.
 
         Domínio, entidade e instância são reutilizados quando já existem.
         A sessão operacional/captura representa um evento novo de medição.
         """
+        if capture_request_id is not None and service_order_scope is None:
+            raise ValueError("Idempotent capture requires service order scope")
+        capture_id = (uuid5(NAMESPACE_URL, f"systemos-capture:{service_order_scope['organization_id']}:{capture_request_id}")
+                      if capture_request_id is not None else None)
         if service_order_scope is not None:
             if set(service_order_scope) != {"source_system", "organization_id", "service_order_id"}:
                 raise ValueError("Incomplete service order scope")
@@ -470,7 +476,8 @@ class CousKnowledgeRepository:
                     WHERE kd.document_type = 'service_order'
                       AND (kd.domain_id = $1 OR kd.domain_id IS NULL)
                       AND kd.status <> 'deleted'
-                      AND ($3::jsonb IS NULL OR kd.metadata -> 'extra' @> $3::jsonb)
+                      AND ($3::jsonb IS NULL OR kd.metadata -> 'extra' @> $3::jsonb OR kd.metadata @> $3::jsonb)
+                      AND ($4::uuid IS NULL OR kd.id = $4)
                       AND (
                           kd.metadata #>> '{extra,service_order_number}' = $2
                           OR kd.metadata ->> 'service_order_number' = $2
@@ -484,6 +491,7 @@ class CousKnowledgeRepository:
                     domain_id,
                     service_order_number,
                     json.dumps(service_order_scope) if service_order_scope is not None else None,
+                    service_order_document_id,
                 )
                 if service_order is None:
                     raise ServiceOrderNotFoundError(
@@ -501,6 +509,24 @@ class CousKnowledgeRepository:
                     raise ServiceOrderSerialMismatchError(
                         f"numero de serie da medicao diverge da OS {service_order_number}"
                     )
+
+                if capture_id is not None:
+                    await conn.execute("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", str(capture_id))
+                    existing = await conn.fetchrow(
+                        """SELECT cs.id, cs.operational_session_id, cs.instance_id, cs.service_order_document_id,
+                                  i.serial_number, e.id AS entity_id, e.domain_id, e.manufacturer, e.model
+                           FROM capture_sessions cs JOIN instances i ON i.id = cs.instance_id
+                           JOIN entities e ON e.id = i.entity_id WHERE cs.id = $1""", capture_id,
+                    )
+                    if existing is not None:
+                        if (existing["service_order_document_id"] != service_order["id"]
+                            or existing["domain_id"] != domain_id
+                            or _normalized_serial(existing["serial_number"]) != _normalized_serial(serial_number)
+                            or (existing["manufacturer"] or "") != manufacturer or (existing["model"] or "") != model):
+                            raise ServiceOrderSerialMismatchError("Capture request ID already used for a different identity or snapshot")
+                        return {"domain_id": domain_id, "entity_id": existing["entity_id"],
+                                "instance_id": existing["instance_id"], "operational_session_id": existing["operational_session_id"],
+                                "capture_session_id": existing["id"], "service_order_document_id": existing["service_order_document_id"]}
 
                 entity = await conn.fetchrow(
                     """
@@ -572,15 +598,16 @@ class CousKnowledgeRepository:
                     """
                     INSERT INTO capture_sessions (
                         operational_session_id, instance_id, diagnosis_status,
-                        service_order_document_id, header_observations
+                        service_order_document_id, header_observations, id
                     )
-                    VALUES ($1, $2, 'pending', $3, $4)
+                    VALUES ($1, $2, 'pending', $3, $4, COALESCE($5::uuid, gen_random_uuid()))
                     RETURNING id
                     """,
                     operational_session_id,
                     instance_id,
                     service_order["id"],
                     measurement_observations,
+                    capture_id,
                 )
 
         return {

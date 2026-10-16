@@ -665,7 +665,7 @@ async def _test_worker_mark_completed_persists_result_payload():
     assert len(executed) == 1
     query, args = executed[0]
     assert "result_payload" in query
-    assert "callback_status = 'pending'" in query
+    assert "delivery_mode" in query and "not_required" in query and "ELSE 'pending'" in query
     assert args[0] == item_id
     assert "Atrito elevado" in args[1]
 

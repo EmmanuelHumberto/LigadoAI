@@ -70,7 +70,10 @@ def create_knowledge_router(
                     category=payload.metadata.category,
                     document_type=payload.metadata.document_type,
                     title=payload.metadata.title,
-                    extra=payload.metadata.extra,
+                    extra={**payload.metadata.extra, **({
+                        "_inline_text": payload.inline_text,
+                        "retrieval_eligible": False,
+                    } if payload.inline_text is not None else {})},
                 ),
                 force=payload.options.force,
             )
@@ -82,6 +85,7 @@ def create_knowledge_router(
             message = "Job equivalente ja esta em processamento."
         return KnowledgeIndexResponseSchema(
             job_id=job.id,
+            duplicate_of=job.metadata.get("duplicate_of"),
             document_id=job.document_id,
             status=job.status.value,
             message=message,

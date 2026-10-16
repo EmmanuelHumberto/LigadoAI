@@ -11,11 +11,11 @@ import json
 from collections.abc import Callable
 from datetime import UTC, datetime
 from secrets import compare_digest
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from knowledge.infrastructure.postgres.cous_repository import CousKnowledgeRepository
 from knowledge.api.cous_schemas import ServiceOrderScopeSchema
@@ -44,10 +44,20 @@ class DiagnosisRequestSchema(BaseModel):
     capture_session_id: UUID
     instance_id: UUID
     domain_id: UUID
-    callback_endpoint: str
+    callback_endpoint: str = ""
+    delivery_mode: Literal["callback", "polling"] = "callback"
     priority: str = "normal"
     evidence_set: list[dict] = Field(default_factory=list)
     context: dict = Field(default_factory=dict)
+
+
+    @model_validator(mode="after")
+    def validate_delivery(self):
+        if self.delivery_mode == "callback" and not self.callback_endpoint.strip():
+            raise ValueError("Callback endpoint required for callback delivery")
+        if self.delivery_mode == "polling" and self.callback_endpoint:
+            raise ValueError("Polling delivery must not configure a callback")
+        return self
 
 
 class DiagnosisResponseSchema(BaseModel):
@@ -109,7 +119,7 @@ def create_diagnosis_router(
                 WHERE cs.id = $1 AND cs.instance_id = $2 AND e.domain_id = $3
                   AND ($4::jsonb IS NULL OR (
                     kd.document_type = 'service_order' AND kd.status <> 'deleted'
-                    AND kd.metadata -> 'extra' @> $4::jsonb
+                    AND (kd.metadata -> 'extra' @> $4::jsonb OR kd.metadata @> $4::jsonb)
                   ))
                 """,
                 payload.capture_session_id, payload.instance_id, payload.domain_id,

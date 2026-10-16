@@ -6,7 +6,7 @@ from datetime import datetime
 from uuid import UUID
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from knowledge.domain.cous_models import (
     ContradictionStatus,
@@ -183,6 +183,8 @@ class ServiceOrderScopeSchema(BaseModel):
 
 
 class CaptureIdentityResolveRequestSchema(BaseModel):
+    service_order_document_id: UUID | None = None
+    capture_request_id: UUID | None = None
     service_order_scope: ServiceOrderScopeSchema | None = None
     domain_name: str = Field(default="tattoo_machines", min_length=1, max_length=255)
     domain_version: str = Field(default="v1", max_length=50)
@@ -193,6 +195,13 @@ class CaptureIdentityResolveRequestSchema(BaseModel):
     service_order_number: str = Field(min_length=1, max_length=255)
     measurement_observations: str = Field(default="", max_length=10000)
     operator_name: str = Field(default="", max_length=255)
+
+
+    @model_validator(mode="after")
+    def require_scope_for_idempotency(self):
+        if self.capture_request_id is not None and self.service_order_scope is None:
+            raise ValueError("Idempotent capture requires a service order scope")
+        return self
 
 
 class CaptureIdentityResolveResponseSchema(BaseModel):

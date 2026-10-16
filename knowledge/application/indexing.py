@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import replace
-from uuid import UUID
+from uuid import UUID, uuid4, uuid5, NAMESPACE_URL
 
 from knowledge.domain import (
+    ConvertedDocument,
     CorpusVersion,
     DocumentStatus,
     JobStatus,
@@ -62,7 +63,10 @@ class IndexKnowledgeJob:
         await self._jobs.update_job_status(job.id, JobStatus.RUNNING, stage="convert")
 
         try:
-            converted = await self._converter.convert(job.source_uri)
+            inline = job.metadata.get("_inline_text")
+            operational = isinstance(inline, str) and job.source_uri.startswith("systemos://")
+            converted = (ConvertedDocument(source_uri=job.source_uri, text=inline, content_type="text/plain")
+                         if operational else await self._converter.convert(job.source_uri))
             validation = await self._validator.validate(converted)
             if not validation.approved:
                 return await self._fail(
@@ -74,6 +78,7 @@ class IndexKnowledgeJob:
 
             content_hash = hashlib.sha256(converted.text.encode("utf-8")).hexdigest()
             document = KnowledgeDocument(
+                id=uuid5(NAMESPACE_URL, converted.source_uri) if operational else uuid4(),
                 source_uri=converted.source_uri,
                 content_hash=content_hash,
                 title=_metadata_value(job, "title") or converted.title,
@@ -82,7 +87,7 @@ class IndexKnowledgeJob:
                 category=_metadata_value(job, "category"),
                 document_type=_metadata_value(job, "document_type"),
                 status=DocumentStatus.INDEXED,
-                metadata={**converted.metadata, **job.metadata},
+                metadata={**converted.metadata, **{k: v for k, v in job.metadata.items() if k != "_inline_text"}},
             )
             document = await self._repository.upsert_document(document)
 
@@ -95,7 +100,7 @@ class IndexKnowledgeJob:
                 JobStatus.PROCESSING,
                 stage="embedding",
             )
-            vectors = await self._embedder.embed_texts(texts)
+            vectors = [] if operational else await self._embedder.embed_texts(texts)
             chunks = [
                 KnowledgeChunk(
                     document_id=document.id,
@@ -120,9 +125,17 @@ class IndexKnowledgeJob:
                     dimension=self._embedder.dimension,
                     vector_raw=tuple(float(value) for value in vector),
                 )
-                for chunk, vector in zip(chunks, vectors, strict=True)
+                for chunk, vector in zip(chunks, vectors, strict=not operational)
             ]
             await self._repository.replace_chunks(document.id, chunks, embeddings)
+
+            if operational:
+                # Operational records retain chunks for traceability, without
+                # embeddings or eligibility for global knowledge retrieval.
+                return await self._jobs.save_job(replace(
+                    job, document_id=document.id, status=JobStatus.INDEXED,
+                    stage="done", progress_current=len(chunks), progress_total=len(chunks), updated_at=utcnow(),
+                ))
 
             latest = await self._repository.latest_corpus_version()
             next_version = 1 if latest is None else latest.version + 1

@@ -196,6 +196,9 @@ def _catalog_document(documents: list[Any]) -> Document:
     for index, document in enumerate(documents, 1):
         if str(getattr(document, "status", "")).endswith("deleted"):
             continue
+        metadata = getattr(document, "metadata", {}) or {}
+        if metadata.get("retrieval_eligible") is False or metadata.get("extra", {}).get("retrieval_eligible") is False:
+            continue
         title = getattr(document, "title", None) or "-"
         source = getattr(document, "source_uri", None) or "-"
         manufacturer = getattr(document, "manufacturer", None) or "-"

@@ -38,8 +38,8 @@ async def test_scoped_resolution_and_idempotent_enqueue_in_postgres():
         await conn.execute("""
             CREATE TEMP TABLE domains (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text UNIQUE, version text, status text);
             CREATE TEMP TABLE knowledge_documents (id uuid PRIMARY KEY, domain_id uuid, metadata jsonb, document_type text,
-                title text, updated_at timestamptz DEFAULT now(), status text DEFAULT 'indexed');
-            CREATE TEMP TABLE knowledge_chunks (document_id uuid, text text, chunk_index int);
+                source_uri text, manufacturer text, model text, category text, title text, updated_at timestamptz DEFAULT now(), status text DEFAULT 'indexed');
+            CREATE TEMP TABLE knowledge_chunks (id uuid DEFAULT gen_random_uuid(), document_id uuid, text text, chunk_index int, metadata jsonb DEFAULT '{}');
             CREATE TEMP TABLE entities (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), domain_id uuid, entity_type text,
                 manufacturer text, model text, description text, created_at timestamptz DEFAULT now());
             CREATE TEMP TABLE instances (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), entity_id uuid, serial_number text,
@@ -49,7 +49,8 @@ async def test_scoped_resolution_and_idempotent_enqueue_in_postgres():
                 instance_id uuid, diagnosis_status text, service_order_document_id uuid, header_observations text);
             CREATE TEMP TABLE diagnosis_queue (id uuid PRIMARY KEY, capture_session_id uuid, instance_id uuid, domain_id uuid,
                 callback_endpoint text, priority text, evidence_set jsonb, context jsonb, request_payload jsonb,
-                queued_at timestamptz, status text);
+                queued_at timestamptz, status text, result_payload jsonb, error_message text, last_attempt_at timestamptz,
+                callback_status text, callback_next_attempt_at timestamptz, callback_error text);
         """)
         import json
         org_a, org_b, order_a, order_b, doc_a, doc_b = [uuid4() for _ in range(6)]
@@ -58,10 +59,27 @@ async def test_scoped_resolution_and_idempotent_enqueue_in_postgres():
         for doc, scope, serial in [(doc_a, scope_a, "SN-A"), (doc_b, scope_b, "SN-B")]:
             await conn.execute("INSERT INTO knowledge_documents(id, metadata, document_type, title) VALUES($1,$2::jsonb,'service_order','1141_maintenance')",
                 doc, json.dumps({"extra": {**scope, "service_order_number": "1141", "equipment_serial": serial}}))
+        await conn.execute("UPDATE knowledge_documents SET metadata = metadata || '{\"retrieval_eligible\":false}'::jsonb WHERE id=$1", doc_b)
+        for doc in [doc_a, doc_b]:
+            await conn.execute("INSERT INTO knowledge_chunks(document_id,text,chunk_index) VALUES($1,'PRIVATE_SEARCH_FIXTURE',0)", doc)
+        from knowledge.infrastructure.postgres.search import PostgresKnowledgeSearch
+        search = PostgresKnowledgeSearch(SimpleNamespace(acquire=lambda: BorrowConnection(conn)))
+        hits = await search._lexical_search("PRIVATE_SEARCH_FIXTURE", 10, None)
+        assert {hit.document_id for hit in hits} == {doc_a}
         repo = CousKnowledgeRepository(SimpleNamespace(acquire=lambda: BorrowConnection(conn)))
         base = dict(domain_name="tattoo_machines", manufacturer="TEST", model="TEST", service_order_number="1141")
         ids = await repo.resolve_capture_identity(**base, serial_number="SN-A", service_order_scope=scope_a)
         assert ids["service_order_document_id"] == doc_a
+        capture_request = uuid4()
+        repeated = await repo.resolve_capture_identity(**base, serial_number="SN-A", service_order_scope=scope_a,
+            service_order_document_id=doc_a, capture_request_id=capture_request)
+        again = await repo.resolve_capture_identity(**base, serial_number="SN-A", service_order_scope=scope_a,
+            service_order_document_id=doc_a, capture_request_id=capture_request)
+        assert repeated == again
+        with pytest.raises(ServiceOrderNotFoundError):
+            await repo.resolve_capture_identity(**base, serial_number="SN-A", service_order_scope=scope_a,
+                service_order_document_id=doc_b)
+
         other = await repo.resolve_capture_identity(**base, serial_number="SN-B", service_order_scope=scope_b)
         assert other["service_order_document_id"] == doc_b
         with pytest.raises(ServiceOrderNotFoundError):
@@ -70,13 +88,13 @@ async def test_scoped_resolution_and_idempotent_enqueue_in_postgres():
             await repo.resolve_capture_identity(**base, serial_number="SN-A", service_order_scope={**scope_a, "service_order_id": str(uuid4())})
         with pytest.raises(ServiceOrderSerialMismatchError):
             await repo.resolve_capture_identity(**base, serial_number="SN-B", service_order_scope=scope_a)
-        assert await conn.fetchval("SELECT count(*) FROM capture_sessions") == 2
+        assert await conn.fetchval("SELECT count(*) FROM capture_sessions") == 3
         app = FastAPI()
         app.include_router(create_diagnosis_router(repository=repo, auth_token="test-only"))
         payload = {
             "correlation_id": str(uuid4()), "capture_session_id": str(ids["capture_session_id"]),
             "instance_id": str(ids["instance_id"]), "domain_id": str(ids["domain_id"]),
-            "callback_endpoint": "http://127.0.0.1:9999/test", "service_order_scope": scope_a,
+            "delivery_mode": "polling", "service_order_scope": scope_a,
         }
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test",
                 headers={"Authorization": "Bearer test-only"}) as client:
@@ -88,7 +106,10 @@ async def test_scoped_resolution_and_idempotent_enqueue_in_postgres():
             assert await conn.fetchval("SELECT count(*) FROM diagnosis_queue") == 0
             first = await client.post("/v3/diagnosis", json=payload)
             assert first.status_code == 202, first.text
-            await conn.execute("UPDATE diagnosis_queue SET status='completed'")
+            from runtime.diagnosis.worker import DiagnosisWorker
+            worker = DiagnosisWorker(repository=repo, http_client=client)
+            await worker._mark_completed(__import__("uuid").UUID(payload["correlation_id"]), {"hypotheses": []})
+            assert await conn.fetchval("SELECT callback_status FROM diagnosis_queue") == "not_required"
             second = await client.post("/v3/diagnosis", json=payload)
             assert second.status_code == 202, second.text
             assert second.json()["status"] == "completed"
