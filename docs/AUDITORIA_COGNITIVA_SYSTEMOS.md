@@ -1,6 +1,6 @@
 # Cognição no SystemOS, Cous e OpenTracy
 
-Auditoria e primeira etapa de correção em 15/10/2026, horário de São Paulo. A inspeção incluiu o código do SystemOS no Windows e os projetos OpenTracy e Cous no Linux. **A infraestrutura responde, mas a integração atual do SystemOS ainda não implementa o ciclo cognitivo previsto para o Cous.** As correções desta etapa eliminam duas decisões indevidas de hipótese primária e tornam falhas de recuperação de conhecimento observáveis. Elas não certificam a qualidade do diagnóstico nem resolvem, por si, a redação do modelo.
+Auditoria iniciada em 15/10/2026 e atualizada em 16/10/2026, horário de São Paulo. A inspeção incluiu o SystemOS no Windows e os projetos OpenTracy e Cous no Linux. **O SystemOS agora publica um snapshot técnico identificado e consulta o diagnóstico v3 antes da redação.** As etapas abaixo distinguem os problemas encontrados, as correções implantadas e os limites restantes. A integração não certifica a qualidade do diagnóstico nem resolve, por si, a redação do modelo.
 
 ## Arquitetura prevista e caminho observado
 
@@ -17,9 +17,9 @@ flowchart LR
   R --> V[SystemOS: validar afirmações e apresentar sugestão]
 ```
 
-A linha atual do SystemOS é a inferior. Estar conectado ao OpenTracy não implica utilizar seu motor de diagnóstico.
+Na auditoria inicial de 15/10, o SystemOS usava somente a linha inferior. A Etapa 3 documenta o caminho novo. Estar conectado ao OpenTracy não implica, por si, utilizar seu motor de diagnóstico.
 
-| Responsável | Contrato previsto | Situação encontrada |
+| Responsável | Contrato previsto | Situação na auditoria inicial |
 | --- | --- | --- |
 | Firmware | Medir, qualificar e publicar observações/correlações. | Fonte de medições, não redator de laudos. |
 | Cous | Resolver equipamento/OS, normalizar evidências e vincular captura. | Clientes próprios de medições e diagnóstico v3 existem. |
@@ -224,3 +224,90 @@ Em seguida, persistir a associação com os IDs retornados pelo resolver; import
 Backup desta etapa: `/home/hiatus/.local/state/opentracy-systemos/backup-identidade-20261015-233809`. Contém os seis arquivos preexistentes, `manifest.json`, `identidade-escopo.patch` e `arquivos-apos.json`. O sétimo arquivo é o teste PostgreSQL novo. Antes de editar, foi conferido que os seis arquivos eram iguais ao HEAD; o commit não incluiu alterações anteriores de outros arquivos do Linux.
 
 A reversão do patch passou em `git apply --reverse --check`. Para executar uma reversão futura, conferir novamente essa checagem no diretório do OpenTracy e a identidade do runtime, interromper somente esse processo, aplicar a reversão apenas se a checagem continuar válida e reiniciar com a configuração preservada. Não usar reset do repositório. Gateway, túnel, Ollama e dados operacionais permanecem preservados. A reversão não exige migração de banco: os acréscimos usam metadados e colunas já existentes.
+
+## Etapa 3 — snapshot da OS e consulta do diagnóstico v3
+
+Implementação entre a noite de 15/10 e a madrugada de 16/10/2026. Código SystemOS: `ad694c9`; código OpenTracy: `4ec988f`, com proteção adicional de metadados reservados em `698fcf1`. Esta etapa substitui a condição de integração ainda ausente descrita nas etapas anteriores. A avaliação de qualidade da redação continua pendente.
+
+### Caminho implementado
+
+```mermaid
+sequenceDiagram
+  participant S as SystemOS autorizado
+  participant G as Gateway Linux
+  participant O as OpenTracy
+  S->>S: Carregar OS no escopo; preparar snapshot e hash
+  S->>G: POST /knowledge/index (snapshot inline)
+  G->>O: Contrato canônico autenticado
+  S->>G: GET /knowledge/jobs/{id}
+  S->>G: POST /v3/operational/resolve-capture
+  Note over S,O: Escopo + documento exato + pedido persistido
+  S->>G: POST /v3/diagnosis (delivery_mode=polling)
+  S->>G: GET /v3/diagnosis/{correlation_id}
+  S->>S: Conferir correlação, captura, escopo e hash
+  S->>G: Fluxo existente de redação com diagnóstico de apoio
+  S->>S: Validar frases nas evidências originais; apresentar sugestão
+```
+
+O botão existente continua iniciando um trabalho assíncrono. Com `AI_OPENTRACY_COGNITIVE_ENABLED=true`, a API consulta primeiro o diagnóstico canônico e só depois solicita a redação. Uma falha cognitiva interrompe esse pedido; não há desvio silencioso para a redação isolada. A aplicação da sugestão à OS continua explícita e separada.
+
+### Conteúdo, versão e privacidade
+
+`diagnostico-cognitivo.service.ts` prepara/publica o snapshot com versão de schema, organização, ID da OS, número da ordem, fabricante, modelo, série, evidências técnicas e ensaios. A identificação nominal do cliente não é copiada. Isso não elimina a necessidade de cuidado com dados pessoais eventualmente digitados dentro de textos livres pelo operador.
+
+A serialização canônica preserva datas e zeros, ordena as chaves e produz SHA-256. O endereço lógico é `systemos://<organizacao>/<ordem>/<hash>`, usado como identidade do documento, não como URL a ser baixada. O runtime verifica hash, URI, escopo e a correspondência do corpo JSON com o número da OS e a série declarados. Snapshot acima de 128 KiB é recusado sem truncamento.
+
+O snapshot entra pela rota `/knowledge/index`, que ganhou suporte inline restrito a esse contrato. Ele é registrado com trechos para rastreabilidade, **sem embeddings e com `retrieval_eligible=false`**. Não entra na recuperação semântica, lexical ou no catálogo textual do RAG. Isso evita transformar uma OS particular em conhecimento geral para a redação de outras OS. A API operacional autenticada de documentos continua sendo uma superfície administrativa: essa proteção não implementa, sozinha, autorização multi-organização para todo o OpenTracy.
+
+A captura é vinculada ao ID exato do documento, não ao documento mais recente que tenha o mesmo número. `capture_request_id` permite repetir a resolução sem criar uma segunda captura. O UUID da captura é derivado pelo servidor para idempotência e corresponde a uma linha real criada pelo resolver; não é um identificador preenchido sem registro correspondente.
+
+### Persistência e repetição
+
+Migração SystemOS `048_diagnostico_cognitivo.sql`: tabela `diagnosticos_cognitivos_os`, com FK composta para organização/OS e unicidade por organização, OS e hash. Guarda snapshot, correlação, progresso dos vínculos externos e resultado validado. Um bloqueio de sessão serializa pedidos concorrentes do mesmo snapshot sem manter uma transação aberta durante chamadas HTTP.
+
+Job, documento, captura e resultado são persistidos por etapa. Repetição do mesmo conteúdo reaproveita o vínculo e o resultado. Alteração dos dados produz outro hash e outro diagnóstico. Falha de publicação libera o job para uma nova tentativa; diagnóstico que falhou pode ser reenfileirado pela rota canônica de retry, sem substituir sua identidade ou suas evidências.
+
+`delivery_mode=polling` acrescenta consulta autenticada como modalidade explícita do contrato de diagnóstico. Não configura callback. O worker grava `callback_status=not_required`; a migração de manutenção do outbox preserva esse estado. O contrato antigo de callback permanece o padrão para o Cous.
+
+### Transporte e credenciais
+
+O gateway na porta 8002 ganhou encaminhamento somente para uma lista de métodos/caminhos canônicos: publicação e consulta do job, resolução de captura, diagnóstico, consulta por correlação e retry. Não há proxy arbitrário de URL, leitura geral de documentos ou exposição do runtime na rede.
+
+O SystemOS usa `AI_OPENTRACY_COGNITIVE_TOKEN`; o gateway valida `SYSTEMOS_COGNITIVE_TOKEN` e usa a credencial correspondente do runtime em loopback. Os valores estão somente nos arquivos privados de ambiente; não foram incluídos em código, documentação, saída dos testes ou variáveis públicas do navegador. O recurso permanece desabilitado por padrão em `.env.example` e foi habilitado no ambiente operacional após a validação do caminho real.
+
+### Medições e limites do motor
+
+A evidência de contexto conserva os registros técnicos completos. Para o motor numérico, este incremento envia apenas resumos observados da coleção mais recente, separados por fonte, com unidade esperada e contagem de amostras. Não mistura coleções, não trata referência nominal como medição e não converte grandeza desconhecida para zero. Zero efetivamente registrado permanece zero.
+
+Medição manual sem curva permanece no contexto técnico; não é fabricado um frame de sensor ou um canal ausente. A coleta escolhida informa sua fase, mas este incremento ainda não fornece ao motor a comparação causal completa entre inicial e pós-reparo. Ele também não reimporta todos os frames/correlações do firmware nem substitui a sincronização de medições do Cous. A qualificação de condições, canais mínimos e cobertura temporal permanece uma próxima etapa.
+
+As hipóteses retornadas entram como apoio à redação e não como novas evidências de inspeção. O prompt distingue candidato de hipótese primária e mantém a obrigação de apoiar cada frase nos registros originais. A confiança formal não substitui a autoavaliação do redator. O resultado não aprova equipamento nem comprova execução de serviço.
+
+### Verificações
+
+- Linux: **114 testes aprovados**, incluindo schema, indexação, RAG, motor, contratos, idempotência e PostgreSQL temporário.
+- Gateway: checagem de tipos e teste de autenticação, rotas permitidas e limite de corpo aprovados.
+- SystemOS: checagem de tipos e **cinco testes do adaptador aprovados**, incluindo PostgreSQL com tabelas temporárias, ordem das chamadas antes da redação, recusa de resultado de outra captura, reutilização e recuperação de falhas.
+- Teste real somente do caminho cognitivo na OS 1141: 25 evidências, um ensaio, aproximadamente **7,8 segundos**; repetição em aproximadamente **0,1 segundo**, com a mesma captura/correlação. Retornou um candidato e nenhuma hipótese primária.
+- Conferência no banco do Linux: pedido concluído, `callback_status=not_required`, zero tentativas de callback, dois trechos operacionais e zero embeddings para o snapshot.
+
+Esse teste real não chamou o modelo de redação e não aplicou conclusão à OS. Seu tempo mede publicação, identidade, fila e regras do diagnóstico; não mede a duração total de uma nova redação. Os testes automatizados de sequência usaram resposta simulada para o redator. Ainda é necessário avaliar a redação real em casos revisados por especialista, incluindo a OS 1138 e a OS 1141.
+
+Os artefatos privados de verificação ficam em `.runtime/validar-cognicao-real.cjs` e `.runtime/validacao-cognicao-real-1141.json`. O snapshot e o resultado da conferência real ficam na tabela privada da integração; não foram publicados no portal do cliente.
+
+### Operação e reversão desta etapa
+
+A migração 048 foi aplicada antes da ativação e cria somente a nova tabela. Os serviços Linux foram reiniciados com verificação de processo; runtime e gateway responderam `ok`. Banco, arquivos, túnel SSH, Ollama e dados de atendimento foram preservados. Os PIDs históricos constam nos arquivos gerenciados em `~/.local/state/opentracy-systemos/`; sempre verificar a identidade atual antes de parar processos.
+
+Para suspender a etapa cognitiva e voltar ao fluxo anterior de redação, alterar somente `AI_OPENTRACY_COGNITIVE_ENABLED=false` no ambiente privado e reiniciar a aplicação pelo `sisweb`. Com o build atual válido, `-SemBuild -SemDependencias -Reiniciar` recarrega a configuração sem recompilar. Preservar a tabela e seus registros de rastreabilidade; não apagar diagnósticos para reverter a interface. As extensões Linux mantêm compatibilidade com os contratos anteriores.
+
+Backup Linux anterior a esta etapa: `~/.local/state/opentracy-systemos/backup-snapshot-20261015-234911`, com cópias, patch e hashes. O commit incluiu somente alterações desta etapa; diferenças anteriores nos mesmos arquivos foram preservadas fora do commit por seleção de hunks. Para reversão de código, comparar com o backup e o commit específico; não usar reset nem descartar o diretório de trabalho. O ambiente privado também possui cópias anteriores à instalação da credencial.
+
+
+### Resultado da implantação no SystemOS
+
+Build operacional confirmado: `aab93df4-9c38-47d8-afef-d0c3e6f2d172`. O `sisweb` conferiu API, web e portal pelo domínio público após reiniciar somente API/web. A flag cognitiva está habilitada no ambiente privado; a credencial permaneceu fora do Git.
+
+Regressão SystemOS: 114 testes aprovados e um caso opcional de banco ignorado na suíte unitária; os cinco testes do adaptador, incluindo esse caso com PostgreSQL temporário, passaram em execução específica. A integração completa passou em 196 testes, incluindo migrações, escopos, armazenamento, documentos e recuperação. A stack `systemos-tests` foi criada com dados em tmpfs e removida ao final; usou somente o binário da imagem local de MinIO em instância separada, sem compartilhar volumes operacionais.
+
+A validação da etapa está concluída para publicação, identidade, regras existentes, persistência e consulta do diagnóstico. Permanecem pendentes os incrementos de cobertura física/temporal, o contrato de prompts/ferramentas e a avaliação especializada da redação real. Nenhuma conclusão da OS 1141 foi gerada ou aplicada nesta conferência real.
