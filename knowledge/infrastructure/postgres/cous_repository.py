@@ -430,12 +430,21 @@ class CousKnowledgeRepository:
         service_order_number: str,
         measurement_observations: str = "",
         operator_name: str = "",
+        service_order_scope: dict[str, str] | None = None,
     ) -> dict[str, UUID]:
         """Resolve/cria a identidade física e abre uma sessão de captura.
 
         Domínio, entidade e instância são reutilizados quando já existem.
         A sessão operacional/captura representa um evento novo de medição.
         """
+        if service_order_scope is not None:
+            if set(service_order_scope) != {"source_system", "organization_id", "service_order_id"}:
+                raise ValueError("Incomplete service order scope")
+            if service_order_scope["source_system"] != "systemos":
+                raise ValueError("Unsupported source system")
+            # Validate at the repository boundary too (not only the HTTP schema).
+            UUID(service_order_scope["organization_id"])
+            UUID(service_order_scope["service_order_id"])
         async with self._pool.acquire() as conn:
             async with conn.transaction():
                 domain = await conn.fetchrow(
@@ -460,6 +469,8 @@ class CousKnowledgeRepository:
                     LEFT JOIN knowledge_chunks kc ON kc.document_id = kd.id
                     WHERE kd.document_type = 'service_order'
                       AND (kd.domain_id = $1 OR kd.domain_id IS NULL)
+                      AND kd.status <> 'deleted'
+                      AND ($3::jsonb IS NULL OR kd.metadata -> 'extra' @> $3::jsonb)
                       AND (
                           kd.metadata #>> '{extra,service_order_number}' = $2
                           OR kd.metadata ->> 'service_order_number' = $2
@@ -472,6 +483,7 @@ class CousKnowledgeRepository:
                     """,
                     domain_id,
                     service_order_number,
+                    json.dumps(service_order_scope) if service_order_scope is not None else None,
                 )
                 if service_order is None:
                     raise ServiceOrderNotFoundError(

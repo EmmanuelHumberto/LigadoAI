@@ -117,6 +117,8 @@ def create_cous_v3_router(
                 service_order_number=payload.service_order_number,
                 measurement_observations=payload.measurement_observations,
                 operator_name=payload.operator_name,
+                service_order_scope=(payload.service_order_scope.model_dump(mode="json")
+                                     if payload.service_order_scope else None),
             )
         except ServiceOrderNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from uuid import UUID
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -173,7 +174,16 @@ class KnowledgeUnitFilterSchema(BaseModel):
 
 # ── Operational Identity ─────────────────────────────────────────────────
 
+class ServiceOrderScopeSchema(BaseModel):
+    """External OS identity. Missing scope never falls back to a numbered OS."""
+    model_config = {"extra": "forbid"}
+    source_system: Literal["systemos"]
+    organization_id: UUID
+    service_order_id: UUID
+
+
 class CaptureIdentityResolveRequestSchema(BaseModel):
+    service_order_scope: ServiceOrderScopeSchema | None = None
     domain_name: str = Field(default="tattoo_machines", min_length=1, max_length=255)
     domain_version: str = Field(default="v1", max_length=50)
     entity_type: str = Field(default="tattoo_machine", min_length=1, max_length=100)

@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field
 
 from knowledge.infrastructure.postgres.cous_repository import CousKnowledgeRepository
+from knowledge.api.cous_schemas import ServiceOrderScopeSchema
 
 
 def _row_value(row: Any, key: str, default: Any = None) -> Any:
@@ -38,6 +39,7 @@ def _bearer_auth_dependency(expected: str) -> Callable:
 
 
 class DiagnosisRequestSchema(BaseModel):
+    service_order_scope: ServiceOrderScopeSchema | None = None
     correlation_id: UUID
     capture_session_id: UUID
     instance_id: UUID
@@ -94,14 +96,32 @@ def create_diagnosis_router(
         payload: DiagnosisRequestSchema,
     ) -> DiagnosisResponseSchema:
         """Enfileira uma requisição de diagnóstico."""
+        queued_at = datetime.now(UTC)
         async with repository._pool.acquire() as conn:
-            # Contar posição na fila
+            # A caller must not combine a capture from one machine with another
+            # instance/domain or an unrelated external service order.
+            identity = await conn.fetchrow(
+                """
+                SELECT cs.id FROM capture_sessions cs
+                JOIN instances i ON i.id = cs.instance_id
+                JOIN entities e ON e.id = i.entity_id
+                LEFT JOIN knowledge_documents kd ON kd.id = cs.service_order_document_id
+                WHERE cs.id = $1 AND cs.instance_id = $2 AND e.domain_id = $3
+                  AND ($4::jsonb IS NULL OR (
+                    kd.document_type = 'service_order' AND kd.status <> 'deleted'
+                    AND kd.metadata -> 'extra' @> $4::jsonb
+                  ))
+                """,
+                payload.capture_session_id, payload.instance_id, payload.domain_id,
+                payload.service_order_scope.model_dump_json() if payload.service_order_scope else None,
+            )
+            if identity is None:
+                raise HTTPException(status_code=409, detail="Capture identity or service order scope mismatch")
             pos_row = await conn.fetchrow(
                 "SELECT COUNT(*) FROM diagnosis_queue WHERE status = 'pending'"
             )
             position = pos_row["count"] if pos_row else 0
-
-            await conn.execute(
+            inserted = await conn.fetchrow(
                 """
                 INSERT INTO diagnosis_queue (
                     id, capture_session_id, instance_id,
@@ -111,24 +131,32 @@ def create_diagnosis_router(
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10, 'pending')
                 ON CONFLICT (id) DO NOTHING
+                RETURNING id
                 """,
-                payload.correlation_id,
-                payload.capture_session_id,
-                payload.instance_id,
-                payload.domain_id,
-                payload.callback_endpoint,
-                payload.priority,
+                payload.correlation_id, payload.capture_session_id, payload.instance_id,
+                payload.domain_id, payload.callback_endpoint, payload.priority,
                 json.dumps(payload.evidence_set, default=str),
-                json.dumps(payload.context, default=str),
-                payload.model_dump_json(),
-                datetime.now(UTC),
+                json.dumps(payload.context, default=str), payload.model_dump_json(), queued_at,
             )
-
+            if inserted is None:
+                previous = await conn.fetchrow(
+                    "SELECT * FROM diagnosis_queue WHERE id = $1", payload.correlation_id,
+                )
+                saved = _row_json_value(previous, "request_payload") if previous else None
+                # Defaults absent from old persisted payloads retain their meaning.
+                try:
+                    equivalent = saved is not None and DiagnosisRequestSchema.model_validate(saved) == payload
+                except ValueError:
+                    equivalent = False
+                if not equivalent:
+                    raise HTTPException(status_code=409, detail="Correlation ID already used for a different request")
+                return DiagnosisResponseSchema(
+                    correlation_id=payload.correlation_id, status=previous["status"],
+                    queued_at=previous["queued_at"].isoformat(), position=0,
+                )
         return DiagnosisResponseSchema(
-            correlation_id=payload.correlation_id,
-            status="queued",
-            queued_at=datetime.now(UTC).isoformat(),
-            position=position + 1,
+            correlation_id=payload.correlation_id, status="queued",
+            queued_at=queued_at.isoformat(), position=position + 1,
         )
 
     @router.get("/queue", response_model=DiagnosisQueueSchema)

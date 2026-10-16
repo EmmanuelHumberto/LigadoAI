@@ -129,3 +129,32 @@ def test_resolve_capture_identity_rejects_serial_mismatch():
         )
 
     assert exc_info.value.status_code == 409
+
+
+SCOPE = {
+    "source_system": "systemos",
+    "organization_id": "10000000-0000-0000-0000-000000000001",
+    "service_order_id": "20000000-0000-0000-0000-000000000001",
+}
+
+
+def test_scoped_identity_preserves_external_ids():
+    repo = FakeRepository()
+    asyncio.run(_resolve_endpoint(repo)(CaptureIdentityResolveRequestSchema(
+        serial_number="1199", service_order_number="1063", service_order_scope=SCOPE,
+    )))
+    assert repo.calls[0]["service_order_scope"] == SCOPE
+
+
+@pytest.mark.parametrize("scope", [
+    {}, {"source_system": "systemos"},
+    {**SCOPE, "organization_id": "not-a-uuid"},
+    {**SCOPE, "source_system": "unknown"},
+    {**SCOPE, "extra": "unsupported"},
+])
+def test_partial_or_invalid_scope_is_never_accepted(scope):
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        CaptureIdentityResolveRequestSchema(
+            serial_number="1199", service_order_number="1063", service_order_scope=scope,
+        )

@@ -125,3 +125,95 @@ async def test_retry_route_requeues_only_failed_diagnosis():
         "correlation_id": str(DIAGNOSIS_ID),
         "status": "pending",
     }
+
+
+class EnqueueConnection(FakeConnection):
+    def __init__(self):
+        super().__init__()
+        self.identity_valid = True
+        self.saved = None
+        self.inserts = 0
+
+    async def fetchrow(self, query, *args):
+        if "FROM capture_sessions" in query:
+            return {"id": args[0]} if self.identity_valid else None
+        if "INSERT INTO diagnosis_queue" in query:
+            if self.saved is not None:
+                return None
+            self.inserts += 1
+            import json
+            self.saved = {"request_payload": json.loads(args[8]), "status": "completed", "queued_at": args[9]}
+            return {"id": args[0]}
+        if "SELECT * FROM diagnosis_queue" in query:
+            return self.saved
+        return await super().fetchrow(query, *args)
+
+
+def enqueue_payload():
+    return {
+        "correlation_id": str(DIAGNOSIS_ID),
+        "capture_session_id": "00000000-0000-0000-0000-0000000000c1",
+        "instance_id": "00000000-0000-0000-0000-0000000000a1",
+        "domain_id": "00000000-0000-0000-0000-0000000000b1",
+        "callback_endpoint": "http://127.0.0.1:9999/callback",
+    }
+
+
+@pytest.mark.anyio
+async def test_enqueue_rejects_unrelated_capture_before_any_write():
+    repo = FakeRepository()
+    repo.conn = EnqueueConnection()
+    repo.conn.identity_valid = False
+    repo._pool = FakePool(repo.conn)
+    app = FastAPI()
+    app.include_router(create_diagnosis_router(repository=repo))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/v3/diagnosis", json=enqueue_payload())
+    assert response.status_code == 409
+    assert repo.conn.inserts == 0
+
+
+@pytest.mark.anyio
+async def test_equivalent_retry_returns_existing_completed_state_without_requeue():
+    repo = FakeRepository()
+    repo.conn = EnqueueConnection()
+    repo._pool = FakePool(repo.conn)
+    app = FastAPI()
+    app.include_router(create_diagnosis_router(repository=repo))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        first = await client.post("/v3/diagnosis", json=enqueue_payload())
+        repeated = await client.post("/v3/diagnosis", json=enqueue_payload())
+    assert first.status_code == repeated.status_code == 202
+    assert repeated.json()["status"] == "completed"
+    assert first.json()["queued_at"] == repeated.json()["queued_at"]
+    assert repeated.json()["position"] == 0
+    assert repo.conn.inserts == 1
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("change", [
+    {"context": {"different": True}}, {"callback_endpoint": "http://127.0.0.1:9998/other"},
+    {"capture_session_id": "00000000-0000-0000-0000-0000000000c2"},
+    {"evidence_set": [{"evidence_type": "different"}]},
+])
+async def test_correlation_cannot_be_reused_for_changed_request(change):
+    repo = FakeRepository()
+    repo.conn = EnqueueConnection()
+    repo._pool = FakePool(repo.conn)
+    app = FastAPI()
+    app.include_router(create_diagnosis_router(repository=repo))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/v3/diagnosis", json=enqueue_payload())
+        response = await client.post("/v3/diagnosis", json={**enqueue_payload(), **change})
+    assert response.status_code == 409
+    assert repo.conn.inserts == 1
+
+
+@pytest.mark.anyio
+async def test_enqueue_remains_authenticated_when_token_configured():
+    repo = FakeRepository()
+    app = FastAPI()
+    app.include_router(create_diagnosis_router(repository=repo, auth_token="test-only"))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/v3/diagnosis", json=enqueue_payload(), headers={"Authorization": "Bearer wrong"})
+    assert response.status_code == 401
