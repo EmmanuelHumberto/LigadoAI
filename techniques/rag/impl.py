@@ -175,6 +175,8 @@ async def _retrieve_and_close(
 
 
 def _is_inventory_request(query: str) -> bool:
+    if query.startswith("TAREFA_SYSTEMOS_ANALISE_TECNICA_"):
+        return False
     normalized = query.lower()
     triggers = (
         "listar todos",

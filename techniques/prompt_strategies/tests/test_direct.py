@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import pytest
 
 from runtime.protocols import Context, Document, RoutingDecision
-from techniques.prompt_strategies.impl import PromptStrategiesTechnique
+from techniques.prompt_strategies.impl import PromptStrategiesTechnique, _render_user_message
 
 
 def _make_ctx(request="hi", docs=None, model="claude-haiku-4-5"):
@@ -134,7 +134,8 @@ def test_routing_default_when_missing(monkeypatch):
     assert "claude-haiku-4-5" in ctx.response
 
 
-def test_ollama_native_call_needs_no_api_key(monkeypatch):
+@pytest.mark.parametrize("systemos", [False, True])
+def test_ollama_json_mode_is_limited_to_systemos(monkeypatch, systemos):
     captured = {}
 
     class _Response:
@@ -145,8 +146,9 @@ def test_ollama_native_call_needs_no_api_key(monkeypatch):
             return False
 
         def read(self):
+            content = '{"achados":[]}' if systemos else "Ola! Como posso ajudar?"
             return json.dumps({
-                "message": {"content": '{"achados":[]}'},
+                "message": {"content": content},
                 "prompt_eval_count": 12,
                 "eval_count": 4,
             }).encode("utf-8")
@@ -157,15 +159,21 @@ def test_ollama_native_call_needs_no_api_key(monkeypatch):
         captured["timeout"] = timeout
         return _Response()
 
+    request = (
+        "TAREFA_SYSTEMOS_ANALISE_TECNICA_V1\nEVIDENCIA COMP_1"
+        if systemos else "ola"
+    )
     monkeypatch.setenv("OPENTRACY_OLLAMA_URL", "http://ollama.test:11434")
-    monkeypatch.setenv("OPENTRACY_OLLAMA_JSON", "true")
+    monkeypatch.delenv("OPENTRACY_OLLAMA_JSON", raising=False)
     monkeypatch.setattr(
         "techniques.prompt_strategies.impl.urllib_request.urlopen", _urlopen
     )
 
-    ctx = _compile().execute(_make_ctx(request="review", model="qwen3.5:4b"))
+    ctx = _compile().execute(_make_ctx(request=request, model="qwen3.5:4b"))
 
-    assert ctx.response == '{"achados":[]}'
+    assert ctx.response == (
+        '{"achados":[]}' if systemos else "Ola! Como posso ajudar?"
+    )
     assert ctx.state["llm_usage"] == {
         "input_tokens": 12,
         "output_tokens": 4,
@@ -173,11 +181,32 @@ def test_ollama_native_call_needs_no_api_key(monkeypatch):
         "provider": "ollama",
     }
     assert captured["url"] == "http://ollama.test:11434/api/chat"
-    assert captured["payload"]["format"]["required"] == [
-        "achados", "incoerencias", "confianca",
-    ]
-    assert captured["payload"]["format"]["additionalProperties"] is False
+    if systemos:
+        assert captured["payload"]["format"]["required"] == [
+            "achados", "incoerencias", "confianca",
+        ]
+        assert captured["payload"]["format"]["additionalProperties"] is False
+        assert captured["payload"]["format"]["properties"]["achados"]["maxItems"] == 8
+        assert captured["payload"]["format"]["properties"]["confianca"]["type"] == ["number", "null"]
+        assert "JSON valido" in captured["payload"]["messages"][0]["content"]
+    else:
+        assert "format" not in captured["payload"]
+        assert "Cous" in captured["payload"]["messages"][0]["content"]
+        assert "portugues brasileiro" in captured["payload"]["messages"][0]["content"]
     assert captured["payload"]["think"] is False
+
+
+def test_systemos_context_is_compact_and_keeps_request():
+    request = "TAREFA_SYSTEMOS_ANALISE_TECNICA_V1\nEVIDENCIA COMP_1"
+    docs = [Document(content=f"doc-{index}-" + ("x" * 2000)) for index in range(4)]
+
+    rendered = _render_user_message(docs, request)
+
+    assert "doc-0-" in rendered
+    assert "doc-1-" not in rendered
+    assert "doc-2-" not in rendered
+    assert request in rendered
+    assert len(rendered) < 900
 
 
 def test_executor_uses_real_usage(monkeypatch):
