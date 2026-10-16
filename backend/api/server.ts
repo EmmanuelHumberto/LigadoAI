@@ -1,4 +1,5 @@
 import { cognitiveRouter } from '../channels/cognitive/handler'
+import { Agent, setGlobalDispatcher } from "undici"
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { logger } from 'hono/logger'
@@ -39,6 +40,7 @@ process.on('unhandledRejection', (reason) => {
   console.warn('[unhandledRejection]', reason instanceof Error ? reason.message : reason)
 })
 
+setGlobalDispatcher(new Agent({ headersTimeout: 900000, bodyTimeout: 900000 }))
 const app = new Hono()
 
 app.use('*', logger())

@@ -43,7 +43,7 @@ export type RunResponse = z.infer<typeof RunResponseSchema>
 export type HealthResponse = z.infer<typeof HealthResponseSchema>
 
 const DEFAULT_RUNTIME_URL = 'http://127.0.0.1:8001'
-const DEFAULT_TIMEOUT_MS = 30_000
+const DEFAULT_TIMEOUT_MS = 900_000
 
 export class RuntimeError extends Error {
   constructor(
