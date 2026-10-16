@@ -10,3 +10,4 @@ knobs:
   catalog_limit: 80
   embedder: intfloat/multilingual-e5-base
   rerank_inline: false
+  timeout_seconds: 45

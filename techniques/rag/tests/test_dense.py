@@ -135,3 +135,23 @@ def test_dense_respects_k_knob():
     ctx = Context(request="shipping brazil", documents=[])
     retriever.execute(ctx)
     assert len(ctx.documents) == 1
+
+
+def test_retrieval_status_distinguishes_failure_from_empty_knowledge(monkeypatch):
+    retriever = _DenseRetriever(knobs={})
+    assert retriever.timeout_seconds == 45
+    retriever._search = _FailingKnowledgeSearch()
+    ctx = Context(request="motor")
+    retriever.execute(ctx)
+    assert ctx.state["retrieval"] == {"status": "unavailable", "reason": "search_error", "documents": 0}
+    monkeypatch.setattr("techniques.rag.impl._run_async", lambda awaitable, **kwargs: (awaitable.close(), (_ for _ in ()).throw(TimeoutError()))[1])
+    retriever.execute(ctx)
+    assert ctx.state["retrieval"]["reason"] == "timeout"
+
+
+def test_successful_retrieval_reports_available_documents():
+    retriever = _DenseRetriever(knobs={"timeout_seconds": 45})
+    retriever._search = _FakeKnowledgeSearch()
+    ctx = Context(request="motor")
+    retriever.execute(ctx)
+    assert ctx.state["retrieval"] == {"status": "ok", "documents": 1}

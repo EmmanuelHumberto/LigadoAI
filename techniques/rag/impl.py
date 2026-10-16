@@ -57,7 +57,7 @@ class _DenseRetriever:
 
     def __init__(self, knobs: dict[str, Any]) -> None:
         self.k: int = int(knobs.get("k", 8))
-        self.timeout_seconds: float = float(knobs.get("timeout_seconds", 5))
+        self.timeout_seconds: float = float(knobs.get("timeout_seconds", 45))
         self.catalog_limit: int = int(knobs.get("catalog_limit", 50))
         self._search: Any | None = None
 
@@ -65,6 +65,7 @@ class _DenseRetriever:
         search = self._search or self._new_search()
         if search is None:
             context.documents = []
+            context.state["retrieval"] = {"status": "unavailable", "reason": "not_configured", "documents": 0}
             return context
 
         try:
@@ -82,6 +83,10 @@ class _DenseRetriever:
         except Exception as e:
             logger.warning("knowledge search failed (%s) — returning 0 docs", e)
             context.documents = []
+            context.state["retrieval"] = {
+                "status": "unavailable", "reason": "timeout" if isinstance(e, TimeoutError) else "search_error",
+                "documents": 0,
+            }
             return context
 
         context.documents = catalog + [
@@ -98,6 +103,9 @@ class _DenseRetriever:
             )
             for hit in hits
         ]
+        context.state["retrieval"] = {
+            "status": "ok" if context.documents else "empty", "documents": len(context.documents),
+        }
         return context
 
     def _new_search(self):

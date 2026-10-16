@@ -202,7 +202,8 @@ async def _test_firmware_mode_kus_do_not_create_modes_without_firmware_evidence(
     assert hypotheses[0]["diagnostic_kind"] == "low_efficiency"
     assert "Rotor travado" not in hypotheses[0]["description"]
     assert "torque requerido" not in hypotheses[0]["description"].lower()
-    assert sum(bool(item["is_primary"]) for item in hypotheses) == 1
+    assert hypotheses[0]["confidence"] < 0.61
+    assert not any(item["is_primary"] for item in hypotheses)
 
 
 def test_worker_ignores_unavailable_mechanical_demand():
@@ -228,7 +229,8 @@ async def _test_worker_ignores_unavailable_mechanical_demand():
         )
 
     assert hypotheses
-    assert hypotheses[0]["is_primary"] is True
+    assert hypotheses[0]["confidence"] == 0.56
+    assert hypotheses[0]["is_primary"] is False
     assert hypotheses[0]["diagnostic_kind"] == "normal_signature"
     assert "torque requerido" not in hypotheses[0]["description"].lower()
 
@@ -729,3 +731,26 @@ async def _test_worker_recovers_firmware_modes_from_persisted_relations():
     assert evidences[0]["diagnostic_modes"][0]["id"] == (
         "source_overvoltage_hypothesis"
     )
+
+
+def test_no_observations_cannot_become_normal_operation_or_a_knowledge_diagnosis():
+    async def run():
+        async with httpx.AsyncClient() as client:
+            worker = DiagnosisWorker(repository=None, http_client=client)
+            knowledge = [{"id": "audit", "title": "Bucha desgastada", "statement": "Desgaste mecanico", "knowledge_level": "confirmed"}]
+            for evidences in [[], [{"type": "service_order_context", "observations": "Motor parado"}], [{"type": "power_snapshot", "valid": False, "current_ma_avg": 0}], [{"type": "electromechanical_signature", "nominal_voltage_mv_avg": 12000}]]:
+                assert await worker._generate_hypotheses(evidences, [], []) == []
+            assert await worker._generate_hypotheses([], knowledge, []) == []
+            assert worker._generate_telemetry_hypotheses([]) == []
+    asyncio.run(run())
+
+
+def test_generic_knowledge_hypothesis_respects_primary_confidence_threshold():
+    async def run():
+        async with httpx.AsyncClient() as client:
+            worker = DiagnosisWorker(repository=None, http_client=client)
+            knowledge = [{"id": "audit", "title": "Bucha desgastada", "statement": "Desgaste mecanico", "knowledge_level": "confirmed"}]
+            hypotheses = await worker._generate_hypotheses([{"type": "vibration_snapshot", "strength": "weak", "rms_norm_mg_avg": 350}], knowledge, [])
+            assert hypotheses
+            assert all(h["confidence"] < 0.61 and not h["is_primary"] for h in hypotheses)
+    asyncio.run(run())

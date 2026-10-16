@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 
 import httpx
 
-from knowledge.domain.confidence import DomainWeights, build_breakdown, compute_confidence
+from knowledge.domain.confidence import DomainWeights, build_breakdown, compute_confidence, can_be_primary_hypothesis
 from knowledge.domain.cous_models import ConfidenceBreakdown
 from runtime.diagnosis.electromechanical import (
     MODE_DEFINITIONS,
@@ -459,7 +459,7 @@ class DiagnosisWorker:
             )
             hypotheses.sort(key=lambda item: item["confidence"], reverse=True)
             for hypothesis in hypotheses:
-                hypothesis["is_primary"] = hypothesis["confidence"] >= 0.61
+                hypothesis["is_primary"] = can_be_primary_hypothesis(hypothesis["confidence"])
                 if hypothesis["is_primary"]:
                     break
             return hypotheses
@@ -476,7 +476,10 @@ class DiagnosisWorker:
             item
             for item in evidences
             if item.get("type") != "service_order_context"
+            and item.get("valid") is not False
         ]
+        if not scored_evidences:
+            return []
         n_strong = sum(
             1 for item in scored_evidences if item.get("strength") == "strong"
         )
@@ -527,7 +530,7 @@ class DiagnosisWorker:
         # Exatamente uma hipótese pode ser primária.
         for hypothesis in hypotheses:
             hypothesis["is_primary"] = False
-        if hypotheses:
+        if hypotheses and can_be_primary_hypothesis(hypotheses[0]["confidence"]):
             hypotheses[0]["is_primary"] = True
 
         return hypotheses
@@ -714,6 +717,17 @@ class DiagnosisWorker:
         evidences: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         metrics = self._merge_evidence_metrics(evidences)
+        observed_fields = {
+            "bus_voltage_mv_avg", "motor_current_ma_avg", "current_ma_avg",
+            "electrical_power_mw_avg", "power_mw_avg", "rpm_mpu_avg", "rpm_hall_avg",
+            "latest_observation_hall_rpm_inferred", "hall_rpm_inferred",
+            "rms_norm_mg_avg", "vibration_rms_mg_avg", "peak_norm_mg_avg",
+            "vibration_peak_mg_avg", "bemf_error_permille_avg",
+            "winding_resistance_error_permille_avg", "equivalent_resistance_error_permille_avg",
+        }
+        # References and collection metadata do not establish an observed condition.
+        if not observed_fields.intersection(metrics):
+            return []
         voltage_mv = self._metric(metrics, "bus_voltage_mv_avg")
         current_ma = abs(self._metric(metrics, "motor_current_ma_avg")) or abs(
             self._metric(metrics, "current_ma_avg")
@@ -822,7 +836,7 @@ class DiagnosisWorker:
                     "history_score": 0.0,
                     "consistency_score": 0.7,
                 },
-                "is_primary": True,
+                "is_primary": can_be_primary_hypothesis(confidence),
                 "causal_chain_id": None,
                 "source": "telemetry_fallback",
                 "diagnostic_kind": diagnostic_kind,

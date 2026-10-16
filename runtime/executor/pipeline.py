@@ -150,6 +150,10 @@ class PipelineExecutor:
             success=success,
             error=error,
             agent_version=self.pipeline.config.version,
+            metadata={"retrieval": {
+                key: value for key, value in ctx.state["retrieval"].items()
+                if key in {"status", "reason", "documents"}
+            }} if isinstance(ctx.state.get("retrieval"), dict) else {},
             history=history_serialized,
             session_id=session_id,
             tokens_in=tokens_in,
