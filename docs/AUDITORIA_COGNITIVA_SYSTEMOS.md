@@ -311,3 +311,21 @@ Build operacional confirmado: `aab93df4-9c38-47d8-afef-d0c3e6f2d172`. O `sisweb`
 Regressão SystemOS: 114 testes aprovados e um caso opcional de banco ignorado na suíte unitária; os cinco testes do adaptador, incluindo esse caso com PostgreSQL temporário, passaram em execução específica. A integração completa passou em 196 testes, incluindo migrações, escopos, armazenamento, documentos e recuperação. A stack `systemos-tests` foi criada com dados em tmpfs e removida ao final; usou somente o binário da imagem local de MinIO em instância separada, sem compartilhar volumes operacionais.
 
 A validação da etapa está concluída para publicação, identidade, regras existentes, persistência e consulta do diagnóstico. Permanecem pendentes os incrementos de cobertura física/temporal, o contrato de prompts/ferramentas e a avaliação especializada da redação real. Nenhuma conclusão da OS 1141 foi gerada ou aplicada nesta conferência real.
+
+## Correção de autenticação da redação — 16/10/2026
+
+Após a ativação, uma tentativa real da OS 1141 concluiu publicação, resolução e diagnóstico v3, mas falhou antes de chegar ao redator. O gateway registrou `POST /v1/webhook` com HTTP 401. A API do SystemOS apresentava a mensagem genérica porque esse erro não tinha classificação conhecida.
+
+Causa: o reinício do gateway carregou `BACKEND_API_KEYS` do ambiente persistente, ativando a autenticação também no webhook existente. A chamada de redação do SystemOS ainda não enviava Bearer. O caminho cognitivo usa uma credencial própria e funcionou; disponibilidade do diagnóstico e dos endpoints de saúde não comprovava autenticação da redação. O teste anterior de publicação/diagnóstico não exercitava esse trecho final.
+
+Correção `0ba54b9`: a chamada de redação envia `AI_OPENTRACY_API_KEY` como Bearer, com valor privado aceito pelo gateway. A autenticação não foi removida. Respostas 401/403 agora têm classificação e mensagem explícitas na análise assíncrona; o log registra tipo e status sem divulgar a credencial ou a mensagem arbitrária do provedor. A configuração de exemplo contém somente o nome da variável, sem o segredo.
+
+Verificações anteriores à implantação: seis testes do adaptador passaram, incluindo o envio do header, recusa de credencial, mensagem da tarefa assíncrona e PostgreSQL temporário. Na conferência real do gateway, o mesmo pedido vazio retornou 401 sem autenticação e 400 com autenticação: este último passou pelo middleware e foi recusado pelo schema, sem executar o modelo. Uma análise real completa foi iniciada separadamente para validar também a chegada ao redator; seu resultado será registrado abaixo.
+
+
+Implantação da correção: build `4198e9b0-038a-4d6f-8307-66126230a70d`, confirmado pelo `sisweb -Status` no domínio público. A suíte unitária passou em 115 testes, com um teste opcional ignorado; o conjunto específico do adaptador passou em seis testes com PostgreSQL temporário habilitado. O resultado da análise real completa permanece em validação neste ponto do registro.
+
+
+Resultado final da validação real: a chamada concluiu com autenticação aceita, trace `f93d3a96-1c05-455e-97bd-acba0ea6c16c`, em 626.934 ms (aproximadamente 10min27s). A busca recuperou documentos, e o redator consumiu 7.371 tokens de entrada e produziu 381 de saída. Não houve estouro comprovado do contexto de 16 mil tokens nessa execução.
+
+A resposta do modelo foi rejeitada pela validação factual. Ela incluiu valores numéricos sem citar a evidência de medição correspondente, afirmou tensão nominal e descartou anomalias além do que os registros sustentavam; um parágrafo também terminou incompleto. O sistema devolveu 1.293 caracteres de texto-base, com origem `REGISTROS_OS` e alerta de revisão, em vez de aceitar a redação inadequada. Isso confirma a correção do erro 401 e a chegada ao modelo, mas não comprova qualidade de redação do OpenTracy. Nenhum texto foi aplicado à OS. O resultado e o trace integral foram preservados em arquivos privados de `.runtime` para a próxima etapa de avaliação, sem versionar dados da ordem.
