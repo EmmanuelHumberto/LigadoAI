@@ -14,6 +14,7 @@ from router.models.llm_client import (
     AnthropicClient,
     OpenAIClient,
     MistralClient,
+    OllamaClient,
     MockLLMClient,
 )
 
@@ -198,6 +199,43 @@ def test_mistral_client_stub_raises():
     with pytest.raises(NotImplementedError) as exc_info:
         MistralClient(model="mistral-small-latest")
     assert "deferred" in str(exc_info.value).lower()
+
+
+def test_ollama_client_maps_native_response(monkeypatch):
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return json.dumps({
+                "response": "resposta local",
+                "prompt_eval_count": 12,
+                "eval_count": 7,
+            }).encode("utf-8")
+
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["payload"] = json.loads(request.data)
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr("router.models.llm_client.urlopen", fake_urlopen)
+    client = OllamaClient(model="qwen3:4b", base_url="http://ollama.local:11434", timeout_seconds=20)
+    response = client.generate("ola", max_tokens=80, temperature=0.2)
+
+    assert client.model_id == "ollama/qwen3:4b"
+    assert client.cost_per_1k_tokens == 0.0
+    assert response.text == "resposta local"
+    assert response.tokens_used == 19
+    assert captured["url"] == "http://ollama.local:11434/api/generate"
+    assert captured["payload"]["model"] == "qwen3:4b"
+    assert captured["payload"]["options"]["num_predict"] == 80
+    assert captured["timeout"] == 20
 
 
 def test_mock_client_returns_canned_response():

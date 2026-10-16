@@ -11,7 +11,11 @@ See ROADMAP_P15.3.md.
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
+import json
+import os
 import time
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 
 _DEFERRED_MSG = (
@@ -203,6 +207,79 @@ class MistralClient(LLMClient):
 
     def generate(self, prompt: str, max_tokens: int = 256, temperature: float = 0.0) -> LLMResponse:
         raise NotImplementedError(_DEFERRED_MSG.format(cls="MistralClient"))
+
+
+class OllamaClient(LLMClient):
+    """Local Ollama provider using the native HTTP API."""
+
+    def __init__(
+        self,
+        model: Optional[str] = None,
+        base_url: Optional[str] = None,
+        timeout_seconds: Optional[float] = None,
+    ):
+        raw_model = (model or os.getenv("OLLAMA_MODEL") or "qwen3:4b").strip()
+        self._ollama_model = raw_model.removeprefix("ollama/")
+        self._model_id = f"ollama/{self._ollama_model}"
+        self._base_url = (
+            base_url or os.getenv("OLLAMA_BASE_URL") or "http://127.0.0.1:11434"
+        ).rstrip("/")
+        self._timeout = timeout_seconds or float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "180"))
+
+    @property
+    def model_id(self) -> str:
+        return self._model_id
+
+    @property
+    def cost_per_1k_tokens(self) -> float:
+        return 0.0
+
+    def generate(
+        self,
+        prompt: str,
+        max_tokens: int = 256,
+        temperature: float = 0.0,
+    ) -> LLMResponse:
+        payload = json.dumps({
+            "model": self._ollama_model,
+            "prompt": prompt,
+            "stream": False,
+            "keep_alive": os.getenv("OLLAMA_KEEP_ALIVE", "5m"),
+            "options": {
+                "num_predict": max_tokens,
+                "temperature": temperature,
+                "num_ctx": int(os.getenv("OLLAMA_NUM_CTX", "8192")),
+            },
+        }).encode("utf-8")
+        request = Request(
+            f"{self._base_url}/api/generate",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        started = time.time()
+        try:
+            with urlopen(request, timeout=self._timeout) as response:
+                body = json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"Ollama HTTP {exc.code}: {detail}") from exc
+        except (URLError, TimeoutError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"Ollama request failed: {type(exc).__name__}: {exc}") from exc
+
+        text = body.get("response")
+        if not isinstance(text, str):
+            raise RuntimeError("Ollama returned a response without text")
+        input_tokens = int(body.get("prompt_eval_count") or 0)
+        output_tokens = int(body.get("eval_count") or 0)
+        return LLMResponse(
+            text=text,
+            tokens_used=input_tokens + output_tokens,
+            latency_ms=(time.time() - started) * 1000,
+            model_id=self._model_id,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
 
 
 # --- Test utility ---

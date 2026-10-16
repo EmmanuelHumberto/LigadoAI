@@ -1356,6 +1356,7 @@ const channelLabel = (id: string | undefined): ReactNode => {
 
 const modelLabel = (id: string | undefined): string | null => {
   if (!id) return null;
+  if (id.startsWith('ollama/')) return 'Ollama local';
   if (id.includes('haiku')) return 'Haiku 4';
   if (id.includes('sonnet')) return 'Sonnet 4';
   if (id.includes('opus')) return 'Opus 4';
@@ -1795,7 +1796,7 @@ export const Onboarding = ({ onDone }: OnboardingProps) => {
               ? (<><SlackGlyph size={12} /> Slack · acme-co</>)
               : channelNode
           }
-          model={modelStr ? `Claude ${modelStr}` : null}
+          model={modelStr ? (decisions.model?.startsWith('ollama/') ? modelStr : `Claude ${modelStr}`) : null}
           updatedSection={updatedSection}
         />
       ) : (

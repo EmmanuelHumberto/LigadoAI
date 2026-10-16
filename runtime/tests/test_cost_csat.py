@@ -47,6 +47,15 @@ def test_estimate_cost_more_expensive_model_costs_more():
     assert opus > haiku
 
 
+def test_estimate_cost_ollama_has_no_api_cost():
+    from runtime.cost import estimate_cost
+
+    ti, to, cost = estimate_cost("local prompt", "local answer", model="ollama/local")
+    assert ti > 0
+    assert to > 0
+    assert cost == 0.0
+
+
 # ---------------------------------------------------------------------------
 # runtime/store/feedback.py
 # ---------------------------------------------------------------------------

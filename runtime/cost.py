@@ -81,6 +81,8 @@ def cost_from_usage(
 def _resolve_rate(model: Optional[str]) -> float:
     """Pick $/1k for `model`. Fall back to the default model's rate when
     unknown — never raise, because we want stubs to keep working."""
+    if model and model.startswith("ollama/"):
+        return 0.0
     if model and model in AnthropicClient.COSTS:
         return AnthropicClient.COSTS[model]
     return AnthropicClient.COSTS.get(_DEFAULT_MODEL, 0.001)

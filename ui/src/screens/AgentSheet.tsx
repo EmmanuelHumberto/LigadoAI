@@ -88,6 +88,7 @@ const MODELS: Array<{ id: string; name: string; meta: string }> = [
   { id: 'gpt-4o-mini', name: 'GPT-4o mini', meta: 'OpenAI · cheap + capable' },
   { id: 'gpt-4o', name: 'GPT-4o', meta: 'OpenAI · multimodal default' },
   { id: 'gpt-5', name: 'GPT-5', meta: 'OpenAI · frontier' },
+  { id: 'ollama/local', name: 'Ollama local', meta: 'Local · no API key' },
 ];
 
 const INITIAL_PROMPT = `You are a customer support agent for an online store.

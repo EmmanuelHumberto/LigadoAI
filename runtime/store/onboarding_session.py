@@ -112,6 +112,13 @@ _MODEL_OPTIONS = [
         "p50_latency_s": 3.6,
         "tag": "smartest",
     },
+    {
+        "id": "ollama/local",
+        "name": "Ollama local",
+        "cost_per_million_in": "$0.00",
+        "p50_latency_s": 3.0,
+        "tag": "private",
+    },
 ]
 
 _CHANNEL_OPTIONS = [

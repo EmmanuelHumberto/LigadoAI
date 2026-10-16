@@ -4,6 +4,6 @@ technique: routing
 variant: small_first
 knobs:
   confidence_threshold: 0.7
-  small: deepseek-chat
-  big: deepseek-reasoner
-  escalate_on_failure: true
+  small: ollama/qwen3.5:4b
+  big: ollama/qwen3.5:4b
+  escalate_on_failure: false

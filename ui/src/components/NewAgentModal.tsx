@@ -40,6 +40,7 @@ const MODELS = [
   { id: 'claude-sonnet-4-5', name: 'Sonnet 4.5', meta: 'Smart default' },
   { id: 'claude-haiku-4-5',  name: 'Haiku 4.5',  meta: 'Fast · cheap' },
   { id: 'claude-opus-4',     name: 'Opus 4',     meta: 'Top reasoning' },
+  { id: 'ollama/local',       name: 'Ollama local', meta: 'Private · no API cost' },
 ];
 
 const slugify = (s: string): string =>

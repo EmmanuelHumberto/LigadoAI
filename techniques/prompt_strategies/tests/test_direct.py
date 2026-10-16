@@ -133,36 +133,48 @@ def test_routing_default_when_missing(monkeypatch):
     assert "claude-haiku-4-5" in ctx.response
 
 
+def test_ollama_uses_native_endpoint_without_api_key(monkeypatch):
+    """The stable local alias resolves through OLLAMA_MODEL without a secret."""
+    monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://ollama.internal:11434/")
+    monkeypatch.setenv("OLLAMA_MODEL", "qwen3:8b")
+
+    captured = {}
+
+    def fake_loop(**kwargs):
+        captured.update(kwargs)
+        return "local answer", {"input_tokens": 9, "output_tokens": 4}, []
+
+    monkeypatch.setattr(
+        "techniques.prompt_strategies.impl._run_ollama_native", fake_loop
+    )
+
+    ctx = _compile().execute(_make_ctx(model="ollama/local"))
+
+    assert ctx.response == "local answer"
+    assert captured["model"] == "qwen3:8b"
+    assert captured["max_tokens"] == 64
+    assert captured["temperature"] == 0.0
+    assert ctx.state["llm_usage"] == {
+        "input_tokens": 9,
+        "output_tokens": 4,
+        "model": "ollama/local",
+        "provider": "ollama",
+    }
+
+
 def test_executor_uses_real_usage(monkeypatch):
     """End-to-end at the executor level: when generate stashes usage,
     ExecutionRecord.tokens_in/out match the real numbers, not the
     char-based estimate."""
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
-
-    @dataclass
-    class _Block:
-        text: str
-
-    @dataclass
-    class _Usage:
-        input_tokens: int
-        output_tokens: int
-
-    class _R:
-        content = [_Block(text="hello world")]
-        usage = _Usage(input_tokens=123, output_tokens=7)
-
-    class _M:
-        def create(self, **kw):  # noqa: ARG002
-            return _R()
-
-    class _Fake:
-        def __init__(self, api_key=None):  # noqa: ARG002
-            self.messages = _M()
-
-    fake_mod = types.ModuleType("anthropic")
-    fake_mod.Anthropic = _Fake
-    monkeypatch.setitem(sys.modules, "anthropic", fake_mod)
+    monkeypatch.setattr(
+        "techniques.prompt_strategies.impl._run_ollama_native",
+        lambda **kwargs: (
+            "hello world",
+            {"input_tokens": 123, "output_tokens": 7},
+            [],
+        ),
+    )
 
     from runtime.compiler.builder import compile_agent
     from runtime.compiler.loader import load_agent
@@ -177,7 +189,7 @@ def test_executor_uses_real_usage(monkeypatch):
     # "test request" + "hello world" which would be 2 + 2).
     assert record.tokens_in == 123
     assert record.tokens_out == 7
-    assert record.cost_usd > 0.0
+    assert record.cost_usd == 0.0
     assert record.response == "hello world"
 
 
@@ -185,7 +197,10 @@ def test_offline_pipeline_still_populates_cost(monkeypatch):
     """No API key → executor falls back to char-based estimate (the
     pre-P1.9 behavior). Cost must still be non-zero so the metrics
     tiles render."""
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(
+        "techniques.prompt_strategies.impl._run_ollama_native",
+        lambda **kwargs: ("local answer", None, []),
+    )
 
     from runtime.compiler.builder import compile_agent
     from runtime.compiler.loader import load_agent
@@ -197,5 +212,5 @@ def test_offline_pipeline_still_populates_cost(monkeypatch):
     _, record = exe.run("offline test request that is long enough to estimate")
     assert record.tokens_in >= 1
     assert record.tokens_out >= 1
-    assert record.cost_usd > 0.0
-    assert record.response.startswith("[offline]")
+    assert record.cost_usd == 0.0
+    assert record.response == "local answer"

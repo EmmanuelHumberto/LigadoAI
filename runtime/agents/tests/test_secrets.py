@@ -166,6 +166,10 @@ def test_provider_for_model_unknown_returns_none():
     assert provider_for_model("random-model-x") is None
 
 
+def test_provider_for_model_ollama():
+    assert provider_for_model("ollama/qwen3:4b") == "ollama"
+
+
 # ---------------------------------------------------------------------------
 # File permissions (best-effort on POSIX)
 # ---------------------------------------------------------------------------

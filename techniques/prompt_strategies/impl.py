@@ -7,6 +7,7 @@ matches the model id picked by the route stage:
   - ``claude-*`` / ``anthropic-*``  → Anthropic SDK
   - ``deepseek-*``                  → OpenAI SDK (OpenAI-compatible API)
   - ``gpt-*`` / ``o1-*`` / ``o3-*`` → OpenAI SDK
+  - ``ollama/*``                    → local Ollama OpenAI-compatible API
 
 Token usage is stashed in ``ctx.state["llm_usage"]`` so the executor
 can compute exact cost instead of the char-based estimate it falls
@@ -62,7 +63,8 @@ class _Direct:
 
         provider = provider_for_model(model) or "anthropic"
         agent_id = get_active()
-        api_key = get_secret(provider, agent_id=agent_id)
+        is_ollama = provider == "ollama"
+        api_key = "ollama" if is_ollama else get_secret(provider, agent_id=agent_id)
 
         if not api_key:
             context.response = (
@@ -81,24 +83,51 @@ class _Direct:
             tools = []
 
         try:
-            if provider in ("openai", "deepseek"):
+            if provider in ("openai", "deepseek", "ollama"):
                 base_url = None
                 if provider == "deepseek":
                     base_url = os.environ.get(
                         "DEEPSEEK_BASE_URL", "https://api.deepseek.com"
                     )
-                text, usage, tool_calls = _run_openai_loop(
-                    model=model,
-                    system=system,
-                    user=user_msg,
-                    api_key=api_key,
-                    base_url=base_url,
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature,
-                    tools=tools,
-                    agent_id=agent_id,
-                    max_iterations=self.max_tool_iterations,
-                )
+                request_model = model
+                if provider == "ollama":
+                    base_url = (
+                        os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+                        .rstrip("/")
+                        + "/v1"
+                    )
+                    configured_model = os.environ.get("OLLAMA_MODEL", "").strip()
+                    requested_model = model.removeprefix("ollama/").strip()
+                    request_model = (
+                        configured_model
+                        if requested_model in ("", "local", "default")
+                        else requested_model
+                    )
+                    if not request_model:
+                        raise ValueError(
+                            "OLLAMA_MODEL is required when using ollama/local"
+                        )
+                if is_ollama:
+                    text, usage, tool_calls = _run_ollama_native(
+                        model=request_model,
+                        system=system,
+                        user=user_msg,
+                        max_tokens=self.max_tokens,
+                        temperature=self.temperature,
+                    )
+                else:
+                    text, usage, tool_calls = _run_openai_loop(
+                        model=request_model,
+                        system=system,
+                        user=user_msg,
+                        api_key=api_key,
+                        base_url=base_url,
+                        max_tokens=self.max_tokens,
+                        temperature=self.temperature,
+                        tools=tools,
+                        agent_id=agent_id,
+                        max_iterations=self.max_tool_iterations,
+                    )
             else:
                 text, usage, tool_calls = _run_anthropic_loop(
                     model=model,
@@ -234,6 +263,64 @@ def _run_anthropic_loop(
 
 
 # ---------------------------------------------------------------------------
+# Ollama native
+# ---------------------------------------------------------------------------
+
+def _run_ollama_native(
+    *,
+    model: str,
+    system: str,
+    user: str,
+    max_tokens: int,
+    temperature: float,
+) -> tuple[str, Optional[dict], list[dict[str, Any]]]:
+    import json
+    import urllib.error
+    import urllib.request
+
+    base_url = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+    if base_url.rstrip("/").endswith("/v1"):
+        base_url = base_url.rstrip("/")[:-3]
+    payload: dict[str, Any] = {
+        "model": model,
+        "stream": False,
+        "think": False,
+        "keep_alive": "10m",
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "options": {
+            "temperature": temperature,
+            "num_ctx": int(os.environ.get("OLLAMA_NUM_CTX", "4096")),
+            "num_predict": max_tokens,
+        },
+    }
+    if "TAREFA_SYSTEMOS_ANALISE_TECNICA_V1" in user:
+        payload["format"] = "json"
+    request = urllib.request.Request(
+        base_url.rstrip("/") + "/api/chat",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"content-type": "application/json"},
+        method="POST",
+    )
+    timeout = float(os.environ.get("OLLAMA_TIMEOUT_SECONDS", "180"))
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Ollama HTTP {exc.code}: {detail}") from exc
+    message = body.get("message") if isinstance(body, dict) else None
+    text = message.get("content", "") if isinstance(message, dict) else ""
+    usage = {
+        "input_tokens": int(body.get("prompt_eval_count", 0) or 0),
+        "output_tokens": int(body.get("eval_count", 0) or 0),
+    }
+    return text, usage, []
+
+
+# ---------------------------------------------------------------------------
 # OpenAI
 # ---------------------------------------------------------------------------
 
@@ -281,7 +368,6 @@ def _run_openai_loop(
         }
         if openai_tools and it < max_iterations:
             kwargs["tools"] = openai_tools
-
         resp = client.chat.completions.create(**kwargs)
         usage_obj = getattr(resp, "usage", None)
         if usage_obj is not None:
