@@ -1,8 +1,7 @@
-# agent/pipeline/generate.yaml
 stage: generate
 technique: prompt_strategies
 variant: direct
 knobs:
   prompt: ../prompts/system.md
-  max_tokens: 1400
+  max_tokens: 1600
   temperature: 0.1

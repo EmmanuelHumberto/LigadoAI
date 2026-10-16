@@ -1,4 +1,3 @@
-# agent/pipeline/route.yaml
 stage: route
 technique: routing
 variant: small_first
