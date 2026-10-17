@@ -367,7 +367,7 @@ class DiagnosisWorker:
                 })
 
             relation_rows = await conn.fetch(
-                CORRELATION_TIMELINE_QUERY, capture_session_id, 5000,
+                CORRELATION_TIMELINE_QUERY, str(capture_session_id), 5000,
             )
             correlation = build_persisted_correlation_evidence(
                 [dict(row) for row in relation_rows]
@@ -557,14 +557,14 @@ class DiagnosisWorker:
             ]
         else:
             description = (
-                "Nenhum modo de falha suspeito ou critico foi publicado pelo "
-                "firmware nesta captura"
+                "Nenhum modo de falha suspeito ou critico com suporte "
+                "observacional suficiente foi identificado nesta captura"
             )
             consistency = 1.0
             confidence = 0.4 * evidence_confidence + 0.1 * consistency
             diagnostic_kind = "no_active_firmware_mode"
             limitations = [
-                "Ausencia de modo ativo nao confirma ausencia de defeito fora do modelo."
+                "Ausencia de modo sustentado nao confirma ausencia de defeito fora do modelo. Modos sem observabilidade suficiente nao sao promovidos a evidencia valida."
             ]
         breakdown = ConfidenceBreakdown(
             evidence_score=evidence_confidence,
