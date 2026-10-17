@@ -5450,6 +5450,20 @@ async def corpus_reload(payload: CorpusReloadRequest) -> CorpusReloadResponse:
     return CorpusReloadResponse(loaded=result["loaded"], dimension=result["dimension"])
 
 
+# Live SystemOS connector does not require knowledge indexing or a capture row.
+from runtime.diagnosis.systemos import create_systemos_router
+
+async def _generate_systemos_direct(prompt: str) -> dict:
+    import asyncio
+    # PipelineExecutor is synchronous; do not block the runtime health/worker loop.
+    result = await asyncio.to_thread(lambda: asyncio.run(run(RunRequest(request=prompt))))
+    data = result.model_dump()
+    data["model"] = next((s.routing_model for s in result.stages if s.routing_model), None)
+    return data
+
+app.include_router(create_systemos_router(_generate_systemos_direct))
+
+
 def main() -> None:
     import os
 

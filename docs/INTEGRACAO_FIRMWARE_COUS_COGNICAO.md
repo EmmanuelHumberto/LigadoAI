@@ -80,3 +80,8 @@ Verificacoes incluem testes de decoder, frames vazios/invalidos/desconhecidos,
 duplicacao e escopo, mais consulta SQL real em tabelas temporarias via
 `runtime/tests/test_correlation_timeline_postgres.py`. Esta ultima requer
 `OPENTRACY_RUN_DB_TESTS=1` e DSN; nao altera tabelas operacionais.
+
+
+## Consulta direta ao SystemOS
+
+O conector autenticado sem indexacao previa esta documentado em [CONSULTA_DIRETA_SYSTEMOS.md](CONSULTA_DIRETA_SYSTEMOS.md).
