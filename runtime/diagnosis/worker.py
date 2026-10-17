@@ -15,6 +15,8 @@ from knowledge.domain.confidence import DomainWeights, build_breakdown, compute_
 from knowledge.domain.cous_models import ConfidenceBreakdown
 from runtime.diagnosis.electromechanical import (
     MODE_DEFINITIONS,
+    CORRELATION_TIMELINE_QUERY,
+    decode_systemos_timeline,
     FirmwareModeEvidence,
     build_persisted_correlation_evidence,
     correlation_contract_state,
@@ -272,6 +274,12 @@ class DiagnosisWorker:
             if not isinstance(item, dict):
                 continue
             data = item.get("data") if isinstance(item.get("data"), dict) else {}
+            if item.get("evidence_type") == "systemos_correlation_timeline":
+                evidence = decode_systemos_timeline(data)
+                if item.get("source_reference"):
+                    evidence["source_reference"] = item["source_reference"]
+                normalized.append(evidence)
+                continue
             evidence = dict(data)
             evidence["type"] = (
                 evidence.get("type")
@@ -359,21 +367,7 @@ class DiagnosisWorker:
                 })
 
             relation_rows = await conn.fetch(
-                """
-                SELECT *
-                FROM (
-                    SELECT snapshot_id, timestamp_us, relation_index, relation_id,
-                           layer, assessment, observed, reference, residual,
-                           error_permille, confidence_permille, source_channels,
-                           limitation, valid
-                    FROM electromechanical_correlation_relations
-                    WHERE capture_session_id = $1
-                    ORDER BY timestamp_us DESC, snapshot_id DESC, relation_index DESC
-                    LIMIT 5000
-                ) recent
-                ORDER BY timestamp_us ASC, snapshot_id ASC, relation_index ASC
-                """,
-                capture_session_id,
+                CORRELATION_TIMELINE_QUERY, capture_session_id, 5000,
             )
             correlation = build_persisted_correlation_evidence(
                 [dict(row) for row in relation_rows]

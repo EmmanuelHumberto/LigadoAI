@@ -44,3 +44,39 @@ As ferramentas `cous_facts` fornecem contagem/listagem de OS, medicao, diagnosti
 3. Reiniciar o COUS para carregar o cliente de sincronizacao atualizado.
 4. Executar uma medicao de teste com OS e numero de serie validos.
 5. Confirmar recibo sem rejeicoes, projecao vinculada e diagnostico com o mesmo `capture_session_id`.
+
+
+## Correcao temporal e observabilidade V4 - 16/10/2026
+
+Worker e MCP compartilham `CORRELATION_TIMELINE_QUERY`. A consulta parte dos
+snapshots da sessao/captura e faz LEFT JOIN nas relacoes; a janela e limitada por
+frames inteiros, nunca por linhas de relacoes. Frames sem modos conhecidos,
+vazios ou invalidos permanecem como barreiras. `active_now` reflete o ultimo
+frame; `persistent` preserva somente sequencias realmente consecutivas.
+Timestamps iguais nao acrescentam confirmacao independente e sessoes nao sao
+unidas em uma sequencia de confirmacao.
+
+RPM usa `rpm_observation_valid`, separado de `motor.valid`. Zero legado nao e
+promovido a observacao. Positivo legado permanece compativel; flag explicitamente
+falsa prevalece. Na reconstrucao de hipoteses, rotor travado requer RPM observado
+e janela coerente. Sobrecarga subnominal legada sem observabilidade tambem nao
+evidencia ausencia de movimento; sobrecorrente observada permanece utilizavel.
+
+O adaptador SystemOS envia `systemos_correlation_timeline`, versao 1, no conjunto
+de evidencias. O dicionario `catalogo` contem tuplas
+`[id,layer,source_channels,limitation]`. Cada frame e
+`[snapshot_id,timestamp_us,valid,rpm_observation_valid,rpm_power_coherent,relations]`;
+cada relacao e `[catalog_index,assessment,valid,confidence,observed,reference,residual,error]`.
+O decoder valida a estrutura, conserva todos os marcadores e aplica as mesmas
+regras da reconstrucao persistida. Radar e strings repetidas nao precisam ser
+reenviados. As medias continuam complementares, nao substituem a sequencia.
+
+Cada coleta tem identidade/data/fase proprias. Hipoteses de coletas historicas
+conservam `active_at_collection_end`, mas nao sao declaradas `active_now`.
+Esse tratamento nao certifica reparo nem substitui comparacao tecnica de casos.
+O transporte estruturado nao aumenta o prompt de redacao com frames brutos.
+
+Verificacoes incluem testes de decoder, frames vazios/invalidos/desconhecidos,
+duplicacao e escopo, mais consulta SQL real em tabelas temporarias via
+`runtime/tests/test_correlation_timeline_postgres.py`. Esta ultima requer
+`OPENTRACY_RUN_DB_TESTS=1` e DSN; nao altera tabelas operacionais.

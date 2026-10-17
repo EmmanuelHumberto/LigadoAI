@@ -12,7 +12,7 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
-from runtime.diagnosis.electromechanical import summarize_persisted_relations
+from runtime.diagnosis.electromechanical import CORRELATION_TIMELINE_QUERY, summarize_persisted_relations
 
 server: Server = Server("cous-facts")
 
@@ -613,21 +613,7 @@ async def get_capture_evidence(
         max(1, min(int(limit), 200)),
     )
     relation_rows = await _fetch(
-        """
-        SELECT *
-        FROM (
-            SELECT snapshot_id, timestamp_us, relation_index, relation_id,
-                   layer, assessment, observed, reference, residual,
-                   error_permille, confidence_permille, source_channels,
-                   limitation, valid
-            FROM electromechanical_correlation_relations
-            WHERE capture_session_id::text = $1
-            ORDER BY timestamp_us DESC, snapshot_id DESC, relation_index DESC
-            LIMIT $2
-        ) recent
-        ORDER BY timestamp_us ASC, snapshot_id ASC, relation_index ASC
-        """,
-        capture_session_id.strip(),
+        CORRELATION_TIMELINE_QUERY, capture_session_id.strip(),
         max(1, min(int(limit) * 20, 5000)),
     )
     modes = summarize_persisted_relations(relation_rows)

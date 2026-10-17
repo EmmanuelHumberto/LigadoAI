@@ -292,3 +292,53 @@ async def _test_run_diagnosis_consumes_cous_v3_evidence_end_to_end():
     ]
     assert "O OpenTracy encontrou 1 unidade" in result["explanation"]["narrative"]
     assert result["context"]["reported_problem"] == "motor nao gira"
+
+
+def test_empty_unknown_invalid_and_final_empty_frames_break_temporal_modes():
+    def row(t, **extra):
+        return {"snapshot_id": str(t), "timestamp_us": t * 1_000_000,
+                "relation_id": "locked_rotor_hypothesis", "assessment": 3,
+                "confidence_permille": 900, "valid": True, "frame_valid": True, **extra}
+    for barrier in [row(2, relation_id=None, valid=None),
+                    row(2, relation_id="unknown_mode"), row(2, frame_valid=False),
+                    row(2, valid=False), row(2, assessment=1)]:
+        mode = summarize_persisted_relations([row(1), barrier, row(3)])[0]
+        assert mode["max_consecutive_frames"] == 1
+        assert mode["persistent"] is False
+    mode = summarize_persisted_relations([row(1), row(2), row(3, relation_id=None)])[0]
+    assert mode["persistent"] is True  # happened historically
+    assert mode["active_now"] is False  # not present in the last frame
+    mode = summarize_persisted_relations([row(1), row(1, snapshot_id="duplicate")])[0]
+    assert mode["persistent"] is False
+    mode = summarize_persisted_relations([row(1, source_session_id="a"), row(2, source_session_id="b")])[0]
+    assert mode["persistent"] is False
+
+
+
+def test_compact_systemos_timeline_uses_full_sequence_and_keeps_historical_scope():
+    from runtime.diagnosis.electromechanical import decode_systemos_timeline
+    data={"version":1,"sessao":"s1","data":"2026-10-16","tipoColeta":"DESEMPENHO","current_collection":True,
+          "catalogo":[["locked_rotor_hypothesis",3,"mpu,power","valid RPM required"]],
+          "frames":[["a",1000000,True,True,True,[[0,3,True,900,900,800,100,125]]],
+                    ["b",2000000,True,True,True,[]],
+                    ["c",3000000,True,True,True,[[0,3,True,900,900,800,100,125]]]]}
+    evidence=decode_systemos_timeline(data)
+    mode=evidence["diagnostic_modes"][0]
+    assert evidence["count"]==3 and mode["active_frames"]==2
+    assert mode["max_consecutive_frames"]==1 and mode["persistent"] is False
+    assert mode["active_now"] is True
+    data["current_collection"]=False
+    mode=decode_systemos_timeline(data)["diagnostic_modes"][0]
+    assert mode["active_now"] is False and mode["active_at_collection_end"] is True
+    data["frames"][-1][3]=False
+    assert decode_systemos_timeline(data)["diagnostic_modes"][0]["active_at_collection_end"] is False
+
+
+def test_compact_systemos_contract_rejects_broken_dictionary_and_duplicate_frames():
+    import pytest
+    from runtime.diagnosis.electromechanical import decode_systemos_timeline
+    data={"version":1,"sessao":"s","current_collection":True,"catalogo":[],
+          "frames":[["a",1,True,True,True,[[9,3,True,900,900,800,100,1]]]]}
+    with pytest.raises(ValueError): decode_systemos_timeline(data)
+    data["frames"]=[['a',1,True,False,False,[]],['a',1,True,False,False,[]]]
+    with pytest.raises(ValueError): decode_systemos_timeline(data)

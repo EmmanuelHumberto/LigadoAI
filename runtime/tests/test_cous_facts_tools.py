@@ -176,7 +176,7 @@ def test_capture_evidence_exposes_persisted_firmware_modes(monkeypatch):
     async def fake_fetch(query, *args):
         if "FROM electromechanical_signatures_default" in query:
             return [{"id": 7, "timestamp_us": 1_000_000, "valid": True}]
-        if "FROM electromechanical_correlation_relations" in query:
+        if "LEFT JOIN electromechanical_correlation_relations" in query:
             return [
                 {
                     "snapshot_id": "frame-1",

@@ -164,16 +164,57 @@ def extract_firmware_modes(
     return sorted(selected.values(), key=_mode_priority, reverse=True)
 
 
+
+# Limit whole snapshots, never relation rows: an empty/invalid frame is a
+# temporal barrier, and the first retained frame must not be cut in half.
+CORRELATION_TIMELINE_QUERY = """
+WITH recent_frames AS (
+ SELECT s.id, s.timestamp_us, s.created_at, s.status, s.data,
+        ms.id AS measurement_session_id
+ FROM measurement_snapshots s JOIN measurement_sessions ms ON ms.id=s.session_id
+ WHERE ms.capture_session_id::text=$1::text
+   AND s.type='electromechanical_correlation_frame'
+ ORDER BY s.timestamp_us DESC, s.created_at DESC, s.id DESC LIMIT $2
+)
+SELECT r.relation_index, r.relation_id, r.layer, r.assessment, r.observed,
+       r.reference, r.residual, r.error_permille, r.confidence_permille,
+       r.source_channels, r.limitation, r.valid,
+       f.id AS snapshot_id, f.timestamp_us,
+       f.measurement_session_id::text AS source_session_id,
+       (f.data#>>'{closure,motor,rpm_observation_valid}'='true') AS rpm_observation_valid,
+       (f.data#>>'{closure,motor,rpm_power_coherent}'='true') AS rpm_power_coherent,
+       (f.status='valid' AND f.data->>'valid'='true'
+        AND f.data->>'version'='4') AS frame_valid
+FROM recent_frames f LEFT JOIN electromechanical_correlation_relations r
+ ON r.snapshot_id=f.id AND r.capture_session_id::text=$1::text
+ORDER BY f.timestamp_us ASC, f.created_at ASC, f.id ASC, r.relation_index ASC
+"""
+
 def summarize_persisted_relations(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Rebuild the firmware temporal mode summary from normalized relation rows."""
-    frames: dict[tuple[str, int], dict[str, dict[str, Any]]] = {}
+    frames: dict[tuple[str, str, int], dict[str, dict[str, Any]]] = {}
+    sessions: dict[str, int] = {}
     for row in rows:
-        relation_id = str(row.get("relation_id") or "")
-        if relation_id not in MODE_DEFINITIONS:
-            continue
         timestamp_us = _integer(row.get("timestamp_us"))
         snapshot_id = str(row.get("snapshot_id") or timestamp_us)
-        frames.setdefault((snapshot_id, timestamp_us), {})[relation_id] = dict(row)
+        session = str(row.get("source_session_id") or "")
+        sessions.setdefault(session, len(sessions))
+        relations = frames.setdefault((session, snapshot_id, timestamp_us), {})
+        relation_id = str(row.get("relation_id") or "")
+        if row.get("frame_valid", True) is not True:
+            continue
+        if relation_id in MODE_DEFINITIONS:
+            relation = dict(row)
+            rpm_supported = (row.get("rpm_observation_valid", True) is True
+                             and row.get("rpm_power_coherent", True) is True)
+            if relation_id == "locked_rotor_hypothesis" and not rpm_supported:
+                relation["valid"] = False
+            if relation_id == "motor_nominal_overload_hypothesis" and not rpm_supported:
+                observed, reference = row.get("observed"), row.get("reference")
+                if not (isinstance(observed, (int, float)) and isinstance(reference, (int, float))
+                        and reference > 0 and abs(observed) >= 0.9 * reference):
+                    relation["valid"] = False
+            relations[relation_id] = relation
 
     states: dict[str, dict[str, Any]] = {
         mode_id: {
@@ -194,7 +235,15 @@ def summarize_persisted_relations(rows: list[dict[str, Any]]) -> list[dict[str, 
         for mode_id, definition in MODE_DEFINITIONS.items()
     }
 
-    for (_, timestamp_us), relations in sorted(frames.items(), key=lambda item: item[0][1]):
+    previous_session = None
+    for (session, _, timestamp_us), relations in sorted(
+        frames.items(), key=lambda item: (sessions[item[0][0]], item[0][2], item[0][1])
+    ):
+        if session != previous_session:
+            for state in states.values():
+                state["current_streak"] = 0
+                state["last_active_timestamp_us"] = None
+            previous_session = session
         for mode_id, state in states.items():
             relation = relations.get(mode_id)
             valid = bool(relation and relation.get("valid") is True)
@@ -214,7 +263,7 @@ def summarize_persisted_relations(rows: list[dict[str, Any]]) -> list[dict[str, 
             previous_timestamp_us = state["last_active_timestamp_us"]
             continuous = (
                 previous_timestamp_us is not None
-                and timestamp_us >= previous_timestamp_us
+                and timestamp_us > previous_timestamp_us
                 and timestamp_us - previous_timestamp_us <= MAX_CONFIRMATION_GAP_US
             )
             confidence = _permille_integer(relation.get("confidence_permille"))
@@ -263,7 +312,7 @@ def build_persisted_correlation_evidence(
     modes = summarize_persisted_relations(rows)
     frame_count = len(
         {
-            (str(row.get("snapshot_id") or ""), _integer(row.get("timestamp_us")))
+            (str(row.get("source_session_id") or ""), str(row.get("snapshot_id") or ""), _integer(row.get("timestamp_us")))
             for row in rows
         }
     )
@@ -279,7 +328,11 @@ def build_persisted_correlation_evidence(
         strength = "weak"
     else:
         strength = "moderate" if frame_count >= 2 else "weak"
-    valid_ratio = sum(row.get("valid") is True for row in rows) / len(rows)
+    frame_validity = {}
+    for row in rows:
+        key = (str(row.get("source_session_id") or ""), str(row.get("snapshot_id") or ""), _integer(row.get("timestamp_us")))
+        frame_validity[key] = row.get("frame_valid", row.get("valid")) is True
+    valid_ratio = sum(frame_validity.values()) / len(frame_validity)
     return {
         "type": CORRELATION_TYPE,
         "version": CORRELATION_VERSION,
@@ -523,3 +576,58 @@ def _permille_integer(value: object) -> int:
         return max(0, min(1000, int(value)))
     except (TypeError, ValueError):
         return 0
+
+
+def decode_systemos_timeline(data: dict[str, Any]) -> dict[str, Any]:
+    """Expand a lossless compact sequence, then apply the persisted-frame rules.
+
+    Repeated relation metadata is dictionary encoded, not removed. Empty and
+    invalid frames remain temporal barriers. No physics is recalculated here.
+    """
+    if data.get("version") != 1 or not isinstance(data.get("frames"), list) or not isinstance(data.get("catalogo"), list):
+        raise ValueError("Invalid SystemOS temporal evidence contract")
+    rows = []
+    catalog = data["catalogo"]
+    seen = set()
+    for frame in data["frames"]:
+        if not isinstance(frame, list) or len(frame) != 6:
+            raise ValueError("Invalid SystemOS temporal frame")
+        snapshot, timestamp, valid, rpm_valid, coherent, relations = frame
+        if not isinstance(snapshot, str) or not isinstance(timestamp, int) or isinstance(timestamp, bool) or timestamp < 0 or any(type(v) is not bool for v in (valid, rpm_valid, coherent)) or not isinstance(relations, list):
+            raise ValueError("Invalid SystemOS temporal frame metadata")
+        key = (snapshot, timestamp)
+        if key in seen:
+            raise ValueError("Duplicate SystemOS temporal frame")
+        seen.add(key)
+        marker = {"snapshot_id": snapshot, "timestamp_us": timestamp,
+                  "source_session_id": str(data.get("sessao") or ""),
+                  "frame_valid": valid, "rpm_observation_valid": rpm_valid,
+                  "rpm_power_coherent": coherent}
+        rows.append(marker)  # also retains frames with zero relations
+        for relation in relations:
+            if not isinstance(relation, list) or len(relation) != 8:
+                raise ValueError("Invalid SystemOS temporal relation")
+            index, assessment, relation_valid, confidence, observed, reference, residual, error = relation
+            if type(index) is not int or not 0 <= index < len(catalog) or type(assessment) is not int or not 0 <= assessment <= 4 or type(relation_valid) is not bool or type(confidence) is not int or not 0 <= confidence <= 1000:
+                raise ValueError("Invalid SystemOS temporal relation metadata")
+            definition = catalog[index]
+            if not isinstance(definition, list) or len(definition) != 4 or not isinstance(definition[0], str) or type(definition[1]) is not int or not 0 <= definition[1] <= 3 or any(not isinstance(v, str) for v in definition[2:]):
+                raise ValueError("Invalid SystemOS relation dictionary")
+            rows.append({**marker, "relation_id": definition[0], "layer": definition[1],
+                         "source_channels": definition[2], "limitation": definition[3],
+                         "assessment": assessment, "valid": relation_valid,
+                         "confidence_permille": confidence, "observed": observed,
+                         "reference": reference, "residual": residual, "error_permille": error})
+    evidence = build_persisted_correlation_evidence(rows) or {
+        "type": CORRELATION_TYPE, "version": 4, "count": 0, "diagnostic_modes": [],
+        "strength": "weak", "confidence": 0.0,
+    }
+    evidence["source_session_id"] = str(data.get("sessao") or "")
+    evidence["collection_phase"] = data.get("tipoColeta")
+    evidence["collection_date"] = data.get("data")
+    evidence["current_collection"] = data.get("current_collection") is True
+    if not evidence["current_collection"]:
+        for mode in evidence.get("diagnostic_modes", []):
+            mode["active_at_collection_end"] = mode["active_now"]
+            mode["active_now"] = False
+    return evidence

@@ -525,7 +525,7 @@ def _correlation_projection(data: dict[str, Any]) -> dict[str, Any] | None:
     return {
         "profile_label": str(profile.get("label") or profile.get("id") or "unidentified"),
         "valid": data.get("valid") is True,
-        "rpm": _valid_number(motor, "rpm_mpu", "valid"),
+        "rpm": _valid_rpm(motor),
         "motor_current_ma": _valid_number(electrical, "motor_current_ma", "valid"),
         "voltage_mv": _valid_number(electrical, "bus_voltage_mv", "valid"),
         "bemf_v": bemf_mv / 1000.0 if bemf_mv is not None else None,
@@ -616,3 +616,16 @@ def _valid_number(mapping: dict[str, Any], key: str, valid_key: str) -> int | fl
     if mapping.get(valid_key) is not True or isinstance(value, bool):
         return None
     return value if isinstance(value, int | float) else None
+
+
+def _valid_rpm(motor: dict[str, Any]) -> int | float | None:
+    value = motor.get("rpm_mpu")
+    if isinstance(value, bool) or not isinstance(value, int | float) or value < 0:
+        return None
+    validity = motor.get("rpm_observation_valid")
+    if validity is True:
+        return value
+    # Legacy V4 had no per-quantity RPM flag. A default zero is not an observation.
+    if validity is None and motor.get("valid") is True and value > 0:
+        return value
+    return None
