@@ -6,7 +6,7 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch api/server.ts",
-    "start": "tsx api/server.ts",
+    "start": "node --env-file=../.env --import tsx api/server.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

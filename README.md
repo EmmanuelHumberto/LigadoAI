@@ -235,3 +235,13 @@ MIT — see [LICENSE](LICENSE).
 ## Auditoria cognitiva do SystemOS
 
 [Auditoria, correções e pendências de integração](docs/AUDITORIA_COGNITIVA_SYSTEMOS.md): diagnóstico v3, recuperação de conhecimento, testes e reversão da etapa de 15/10/2026.
+
+## Inicialização do gateway para o SystemOS
+
+O comando `cd backend && npm start` carrega `../.env` pelo Node antes de importar as rotas. O arquivo deve existir e permanecer privado. Não iniciar diretamente com `tsx api/server.ts` sem prover o mesmo ambiente: o processo pode responder ao health check, mas recusar a integração cognitiva por falta de `SYSTEMOS_COGNITIVE_TOKEN`.
+
+A credencial recebida do SystemOS e as credenciais de encaminhamento ao runtime são distintas. Preserve as verificações de autenticação e a lista de rotas permitidas; não abra acesso anônimo para contornar um HTTP 401. O teste `backend/api/start-env.test.ts` confere o carregamento antes da aplicação e a falha quando falta o arquivo, usando somente valor sintético.
+
+Em 26/10/2026, a falha da OS 1146 foi rastreada à inicialização sem esse ambiente. O gateway foi reiniciado com a configuração, preservando runtime, túnel Ollama e coleta. A etapa cognitiva foi repetida usando o snapshot já persistido; nenhuma sugestão foi aplicada à OS. O fluxo COUS → SystemOS usa endereço HTTPS próprio e não foi alterado por esta correção.
+
+Na mesma validação, o serviço systemd do runtime foi alinhado ao Ollama já configurado em `.env`: `127.0.0.1:11436` pelo túnel para Windows, contexto de 16384 e timeout de 900 segundos. O antigo destino `11434` do Linux devolvia modelo ausente para `qwen3.5:4b`. O drop-in fica em `~/.config/systemd/user/opentracy-systemos.service.d/50-systemos-ollama-tunnel.conf`, com backup privado da unidade anterior. Após reiniciar somente o runtime, a análise completa da OS 1146 concluiu, incluindo redação validada, sem aplicar sugestão à ordem.
