@@ -342,3 +342,20 @@ def test_compact_systemos_contract_rejects_broken_dictionary_and_duplicate_frame
     with pytest.raises(ValueError): decode_systemos_timeline(data)
     data["frames"]=[['a',1,True,False,False,[]],['a',1,True,False,False,[]]]
     with pytest.raises(ValueError): decode_systemos_timeline(data)
+
+
+def test_unobserved_output_keeps_uncertainty_and_does_not_require_calibrated_current():
+    evidence = _correlation_evidence(mode_id="mechanical_output_unobserved_hypothesis", assessment="suspect")
+    evidence["diagnostic_modes"][0].update(confidence_permille_max=0,observed=6000,reference=0,residual=0,limitation="Investigar desacoplamento ou Hall; causa nao confirmada")
+    modes = extract_firmware_modes([evidence])
+    assert len(modes) == 1
+    assert modes[0].mode_id == "mechanical_output_unobserved_hypothesis"
+    assert modes[0].definition.unit == "RPM"
+    assert modes[0].confidence == 0
+    assert "Hall" in modes[0].limitation
+    rows = [{"snapshot_id":f"output-{i}","timestamp_us":i*1_000_000,"relation_id":"mechanical_output_unobserved_hypothesis","assessment":2,"confidence_permille":0,"observed":6000,"reference":0,"residual":0,"source_channels":"power,mpu,hall_availability","limitation":"Investigar Hall","valid":True,"rpm_observation_valid":True,"rpm_power_coherent":False} for i in (1,2)]
+    mode = next(m for m in summarize_persisted_relations(rows) if m["id"] == "mechanical_output_unobserved_hypothesis")
+    assert mode["persistent"] and mode["active_now"]
+    rows[-1]["rpm_observation_valid"] = False
+    mode = next(m for m in summarize_persisted_relations(rows) if m["id"] == "mechanical_output_unobserved_hypothesis")
+    assert mode["active_now"] is False

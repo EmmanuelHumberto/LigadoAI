@@ -40,6 +40,10 @@ MODE_DEFINITIONS: dict[str, ModeDefinition] = {
             "corrente de stall",
         ),
     ),
+    "mechanical_output_unobserved_hypothesis": ModeDefinition(
+        label="Saida mecanica nao observada", quantity="rotacao do motor", unit="RPM",
+        knowledge_terms=("desacoplamento mecanico", "transmissao mecanica", "falha de leitura Hall"),
+    ),
     "mechanical_decoupling_hypothesis": ModeDefinition(
         label="Desacoplamento mecanico",
         quantity="corrente",
@@ -100,6 +104,9 @@ MODE_DEFINITIONS: dict[str, ModeDefinition] = {
 MODE_DESCRIPTIONS = {
     "locked_rotor_hypothesis": (
         "Rotacao ausente com corrente igual ou superior a duas vezes a nominal."
+    ),
+    "mechanical_output_unobserved_hypothesis": (
+        "Atividade do motor sem sinal atual da saida; investigar desacoplamento ou aquisicao Hall, sem confirmar a causa."
     ),
     "mechanical_decoupling_hypothesis": (
         "Motor proximo da curva em vazio, com FCEM alta e sem transferencia da carga."
@@ -207,6 +214,8 @@ def summarize_persisted_relations(rows: list[dict[str, Any]]) -> list[dict[str, 
             relation = dict(row)
             rpm_supported = (row.get("rpm_observation_valid", True) is True
                              and row.get("rpm_power_coherent", True) is True)
+            if relation_id == "mechanical_output_unobserved_hypothesis" and not (row.get("rpm_observation_valid") is True and isinstance(row.get("observed"), (int, float)) and row["observed"] > 1):
+                relation["valid"] = False
             if relation_id == "locked_rotor_hypothesis" and not rpm_supported:
                 relation["valid"] = False
             if relation_id == "motor_nominal_overload_hypothesis" and not rpm_supported:
