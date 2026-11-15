@@ -44,3 +44,9 @@ On failure, it restores original source links and units against the SAME state d
 - https://www.postgresql.org/docs/17/ddl-priv.html
 - https://www.postgresql.org/docs/17/sql-alterdefaultprivileges.html
 - https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html
+
+## VPS prerequisite applied, Linux activation pending
+
+On 2026-11-15T05:26:09.076527+00:00, script revision 6955127c5f7cbb99c1054104ffb445fa40e7b4fd added only permitopen=127.0.0.1:3001 to the existing restricted ligadoassist SSH key. authorized_keys SHA256 changed from 6f6fcd6060d54670dcabf863f116592e99ab68900b68bd5406c3fdac34146bcb to 958ee848976bdfab91580bfa6ada4c57780b45f452eda14a0f6caaefa93ddf02. No sshd or production-tunnel restart occurred. The Git source and script hash were verified before execution and the private receipt/backups retained on the VPS.
+
+A separate temporary local forward on 13311 verified the actual restricted key and the authenticated cognitive read of OS 1156 with HTTP 200, then closed. This proves the new SSH destination without opening a permanent local port yet. Linux database role changes, UID egress enforcement, production tunnel drop-in and new diagnosis limits have NOT yet been activated. The root publisher performs those actions only when the operator executes the exact pushed command.
