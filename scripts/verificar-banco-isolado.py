@@ -60,7 +60,23 @@ async def main():
         # The publisher performs the authenticated read once; startup proves only
         # connectivity to its exact private transport destination.
         with socket.create_connection(('127.0.0.1',13301),timeout=4):pass
-    print(json.dumps({'databaseReadOnlyProbe': 'PASSOU', 'leastPrivilegeVerified': bool(os.environ.get('OPENTRACY_DATABASE_ROLE_REQUIRED')), 'uid': os.getuid()}))
+    # Exercise the actual lazy adapters under the real DML-only credential.
+    # Merely connecting or checking the queue does not initialize these adapters.
+    from knowledge.infrastructure.postgres.lazy import LazyPostgresKnowledgeRepository
+    from measurements.infrastructure.postgres.lazy import LazyPostgresMeasurementRepository
+    knowledge = LazyPostgresKnowledgeRepository(os.environ.get('OPENTRACY_KNOWLEDGE_DATABASE_URL') or dsn)
+    measurements = LazyPostgresMeasurementRepository(os.environ.get('OPENTRACY_MEASUREMENTS_DATABASE_URL') or dsn)
+    try:
+        await knowledge._ensure_repo()
+        await measurements._ensure_repo()
+        # A random absent ID exercises the repository read without requiring a customer record.
+        from uuid import uuid4
+        assert await knowledge.get_job(uuid4()) is None
+        assert await measurements.get_session(uuid4()) is None
+    finally:
+        await knowledge.close()
+        await measurements.close()
+    print(json.dumps({'lazyAdaptersReadOnlyProbe': 'PASSOU', 'databaseReadOnlyProbe' : 'PASSOU', 'leastPrivilegeVerified': bool(os.environ.get('OPENTRACY_DATABASE_ROLE_REQUIRED')), 'uid': os.getuid()}))
 
 
 if __name__ == '__main__':

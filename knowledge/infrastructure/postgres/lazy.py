@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 from uuid import UUID
 
 from knowledge.domain import (
@@ -21,7 +20,7 @@ from knowledge.infrastructure.postgres.search import PostgresKnowledgeSearch
 
 
 class LazyPostgresKnowledgeRepository:
-    """Open the PostgreSQL pool and apply migrations on first use."""
+    """Open the PostgreSQL pool and validate its schema without changing it."""
 
     def __init__(self, dsn: str) -> None:
         self._dsn = dsn
@@ -40,7 +39,11 @@ class LazyPostgresKnowledgeRepository:
             if self._repo is not None:
                 return self._repo
             repo = await PostgresKnowledgeRepository.connect(self._dsn)
-            await _apply_migrations(repo)
+            try:
+                await _validate_schema(repo)
+            except BaseException:
+                await repo.close()
+                raise
             self._repo = repo
             return repo
 
@@ -116,9 +119,24 @@ class LazyPostgresKnowledgeRepository:
         )
 
 
-async def _apply_migrations(repo: PostgresKnowledgeRepository) -> None:
-    migration_dir = Path(__file__).resolve().parent / "migrations"
-    migration_files = sorted(migration_dir.glob("*.sql"))
-    async with repo._pool.acquire() as conn:  # noqa: SLF001 - infrastructure-local migration
-        for migration in migration_files:
-            await conn.execute(migration.read_text(encoding="utf-8"))
+async def _validate_schema(repo: PostgresKnowledgeRepository) -> None:
+    """Fail before serving requests if the deployed schema is incomplete.
+
+    Schema changes belong to scripts/migrate-postgres.py, run by the owner.
+    LIMIT 0 checks relations/columns without reading customer records.
+    """
+    probes = (
+        'SELECT * FROM public.knowledge_documents LIMIT 0',
+        'SELECT * FROM public.knowledge_chunks LIMIT 0',
+        'SELECT * FROM public.knowledge_embeddings LIMIT 0',
+        'SELECT * FROM public.knowledge_corpus_versions LIMIT 0',
+        'SELECT * FROM public.knowledge_jobs LIMIT 0',
+        'SELECT service_order_document_id, header_observations FROM public.capture_sessions LIMIT 0',
+        'SELECT callback_status, callback_attempts, callback_last_attempt_at, callback_next_attempt_at, callback_error FROM public.diagnosis_queue LIMIT 0',
+        'SELECT winding_resistance_mohm FROM public.electromechanical_signatures LIMIT 0',
+        'SELECT winding_resistance_error_permille, rpm_error_permille, electrical_power_error_permille FROM public.signature_deviations LIMIT 0',
+    )
+    async with repo._pool.acquire() as conn:  # noqa: SLF001
+        async with conn.transaction(readonly=True):
+            for query in probes:
+                await conn.execute(query)

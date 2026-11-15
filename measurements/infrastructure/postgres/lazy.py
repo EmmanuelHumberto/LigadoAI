@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 from uuid import UUID
 
 from measurements.domain import (
@@ -16,7 +15,7 @@ from measurements.infrastructure.postgres.repository import PostgresMeasurementR
 
 
 class LazyPostgresMeasurementRepository:
-    """Open the PostgreSQL pool and apply migrations on first use."""
+    """Open the PostgreSQL pool and validate its schema without changing it."""
 
     def __init__(self, dsn: str) -> None:
         self._dsn = dsn
@@ -35,7 +34,11 @@ class LazyPostgresMeasurementRepository:
             if self._repo is not None:
                 return self._repo
             repo = await PostgresMeasurementRepository.connect(self._dsn)
-            await _apply_migrations(repo)
+            try:
+                await _validate_schema(repo)
+            except BaseException:
+                await repo.close()
+                raise
             self._repo = repo
             return repo
 
@@ -96,9 +99,19 @@ class LazyPostgresMeasurementRepository:
         return await (await self._ensure_repo()).save_report(session_id, report_markdown)
 
 
-async def _apply_migrations(repo: PostgresMeasurementRepository) -> None:
-    migration_dir = Path(__file__).resolve().parent / "migrations"
-    migration_files = sorted(migration_dir.glob("*.sql"))
-    async with repo._pool.acquire() as conn:  # noqa: SLF001 - infrastructure-local migration
-        for migration in migration_files:
-            await conn.execute(migration.read_text(encoding="utf-8"))
+async def _validate_schema(repo: PostgresMeasurementRepository) -> None:
+    """Fail before serving requests if the deployed schema is incomplete.
+
+    Schema changes belong to scripts/migrate-postgres.py, run by the owner.
+    LIMIT 0 checks relations/columns without reading customer records.
+    """
+    probes = (
+        'SELECT capture_session_id, source_session_id FROM public.measurement_sessions LIMIT 0',
+        'SELECT * FROM public.measurement_snapshots LIMIT 0',
+        'SELECT * FROM public.measurement_snapshot_projections LIMIT 0',
+        'SELECT * FROM public.electromechanical_correlation_relations LIMIT 0',
+    )
+    async with repo._pool.acquire() as conn:  # noqa: SLF001
+        async with conn.transaction(readonly=True):
+            for query in probes:
+                await conn.execute(query)
