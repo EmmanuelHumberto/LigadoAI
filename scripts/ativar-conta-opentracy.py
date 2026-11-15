@@ -150,6 +150,17 @@ def http_status(port, path, token=None):
         return error.code
 
 
+def verify_gateway_contract(port, operator, knowledge):
+    """The Cous knowledge credential is not a gateway operator credential.
+
+    Cous reads /agent/config directly on the runtime, where its narrower scope
+    is explicitly supported. Gateway administrative routes retain operator auth.
+    """
+    assert http_status(port, '/v1/agent/config') == 401
+    assert http_status(port, '/v1/agent/config', operator) == 200
+    assert http_status(port, '/v1/agent/config', knowledge) == 401
+
+
 def health(port):
     for _ in range(40):
         try:
@@ -268,9 +279,7 @@ def main():
         # System manager owns credentials. The new process cannot read old secrets
         # or Docker, as demonstrated again by ExecStartPre in the actual unit.
         system('start', NEW[1]); health(18012)
-        assert http_status(18012, '/v1/agent/config') == 401
-        assert http_status(18012, '/v1/agent/config', token) == 200
-        assert http_status(18012, '/v1/agent/config', knowledge) == 200
+        verify_gateway_contract(18012, token, knowledge)
         system('stop', NEW[1])
         for component in ('runtime', 'gateway'):
             report = json.loads((work / ('production-' + component + '-isolation.json')).read_text())
@@ -296,9 +305,7 @@ def main():
         gateway['PORT'] = '8002'
         replace_configuration(prep, envs[1], gateway, identity.pw_gid)
         system('start', NEW[1]); health(8002)
-        assert http_status(8002, '/v1/agent/config') == 401
-        assert http_status(8002, '/v1/agent/config', token) == 200
-        assert http_status(8002, '/v1/agent/config', knowledge) == 200
+        verify_gateway_contract(8002, token, knowledge)
         assert all(system('is-active', unit) == 'active' for unit in NEW)
         assert all(prep.user_systemctl('show', unit, '-p', 'MainPID', '--value') == '0' for unit in OLD)
         result = {'result': 'ACTIVATED', 'sourceCommit': TESTED, 'publisherCommit': sha, 'account': identity.pw_name,

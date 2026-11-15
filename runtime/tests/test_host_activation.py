@@ -137,3 +137,26 @@ def test_gateway_storage_import_uses_isolated_state_without_database_secrets(act
         env={**env, 'PYTHONPATH': str(root / 'storage_packages') + ':' + str(root)},
         cwd=tmp_path, capture_output=True, text=True, check=True)
     assert result.stdout.strip() == str(work.resolve())
+
+
+def test_activation_accepts_scoped_gateway_denial(activation, monkeypatch):
+    seen = []
+    def read(port, path, token=None):
+        seen.append((port, path, token))
+        return 200 if token == 'operator' else 401
+    monkeypatch.setattr(activation, 'http_status', read)
+    activation.verify_gateway_contract(18012, 'operator', 'knowledge')
+    assert seen == [(18012, '/v1/agent/config', None),
+                    (18012, '/v1/agent/config', 'operator'),
+                    (18012, '/v1/agent/config', 'knowledge')]
+
+
+@pytest.mark.parametrize('changed_token,wrong_status', [(None, 200), ('operator', 401), ('knowledge', 200)])
+def test_activation_refuses_each_gateway_auth_contract_violation(activation, monkeypatch, changed_token, wrong_status):
+    def read(port, path, token=None):
+        if token == changed_token:
+            return wrong_status
+        return 200 if token == 'operator' else 401
+    monkeypatch.setattr(activation, 'http_status', read)
+    with pytest.raises(AssertionError):
+        activation.verify_gateway_contract(18012, 'operator', 'knowledge')
