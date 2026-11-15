@@ -105,6 +105,12 @@ def main():
     for port in (18011,18012):
         with socket.socket() as sock:
             sock.bind(('127.0.0.1',port))
+    # Positive controls prevent mistaking nonexistent paths for successful isolation.
+    for path in (BASE/'.env',Path('/home/hiatus/.config/ligado-vps-tunnel/id_ed25519')):
+        assert path.is_file()
+        descriptor=os.open(path,os.O_RDONLY);os.close(descriptor)
+    with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as docker_control:
+        docker_control.connect('/run/docker.sock')
     source_before=state_manifest(BASE)
     release=Path('/opt/ligado-opentracy/releases')/sha
     deployment=TOP/'deployments'/sha
@@ -220,7 +226,7 @@ def main():
         result={'result':'READY_NOT_ACTIVATED','sourceCommit':sha,'executedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 'account':ACCOUNT,'componentIsolationProofs':reports,'candidateRuntimeHealth':200,'candidateGatewayHealth':200,
                 'stateFilesVerified':len(source_before),'productionServicesUnchanged':True,'candidateDatabaseCredentialsProvided':False,
-                'dependenciesCopied':False,'sharedApplicationAccount':True}
+                'dependenciesCopied':False,'sharedApplicationAccount':True,'hostPositiveControlsVerified':True}
         private_file(deployment/'result.json',json.dumps(result,indent=2).encode())
         private_file(deployment/'manifest.json',json.dumps({'sourceCommit':sha,'release':str(release),'work':str(work),'home':str(home),'cache':str(cache),'account':ACCOUNT,'stateSha256':source_before},indent=2).encode())
         print(json.dumps(result,indent=2))

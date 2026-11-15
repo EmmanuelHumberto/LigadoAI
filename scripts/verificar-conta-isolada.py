@@ -44,8 +44,10 @@ def main():
     status=Path('/proc/self/status').read_text()
     assert 'NoNewPrivs:\t1' in status
     assert 'CapEff:\t0000000000000000' in status
-    assert denied_read('/home/hiatus/.ssh/id_ed25519_systemos')
+    assert denied_read('/home/hiatus/.config/ligado-vps-tunnel/id_ed25519')
     assert denied_read('/home/hiatus/Projetos/ligadotattoo/OpenTracy/.env')
+    assert (release/'runtime/server.py').is_file()
+    assert (release/'.venv/pyvenv.cfg').is_file()
     assert denied_write(release/'runtime/server.py')
     assert denied_write(release/'.venv/pyvenv.cfg')
     sock=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
