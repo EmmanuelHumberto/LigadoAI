@@ -1,44 +1,22 @@
-/**
- * API key auth middleware.
- *
- * Reads `BACKEND_API_KEYS` from env (comma-separated) and accepts any request
- * whose Authorization header is `Bearer <key>` for one of those keys.
- *
- * If `BACKEND_API_KEYS` is unset or empty, the middleware lets every request
- * through (dev mode). Production deployments should always set the env var.
- */
-
+import { timingSafeEqual } from 'node:crypto'
 import type { MiddlewareHandler } from 'hono'
-
-function loadKeys(): Set<string> {
-  const raw = process.env.BACKEND_API_KEYS ?? ''
-  const keys = raw
-    .split(',')
-    .map((k) => k.trim())
-    .filter((k) => k.length > 0)
-  return new Set(keys)
+function loadKeys(): string[] {
+ return (process.env.BACKEND_API_KEYS ?? '').split(',').map(key=>key.trim()).filter(Boolean)
 }
-
-export const apiKeyAuth: MiddlewareHandler = async (c, next) => {
-  const keys = loadKeys()
-
-  if (keys.size === 0) {
-    // Dev mode: no keys configured → allow all. Logged once per request.
-    c.header('x-auth-mode', 'dev-no-keys')
-    return next()
-  }
-
-  const header = c.req.header('Authorization') ?? ''
-  const match = /^Bearer\s+(.+)$/.exec(header)
-  if (!match) {
-    return c.json({ error: 'missing or malformed Authorization header' }, 401)
-  }
-
-  const presented = match[1].trim()
-  if (!keys.has(presented)) {
-    return c.json({ error: 'invalid api key' }, 401)
-  }
-
-  c.header('x-auth-mode', 'api-key')
-  return next()
+export function assertApiKeysConfigured(): void {
+ if(loadKeys().length===0)throw new Error('BACKEND_API_KEYS must be configured')
+}
+export const apiKeyAuth: MiddlewareHandler=async(c,next)=>{
+ const keys=loadKeys()
+ if(keys.length===0)return c.json({error:'authentication_unavailable'},503)
+ const match=/^Bearer\s+(.+)$/i.exec(c.req.header('Authorization')??'')
+ if(!match)return c.json({error:'unauthorized'},401)
+ const actual=Buffer.from(match[1].trim())
+ let accepted=false
+ for(const key of keys){
+  const expected=Buffer.from(key)
+  if(actual.length===expected.length && timingSafeEqual(actual,expected))accepted=true
+ }
+ if(!accepted)return c.json({error:'unauthorized'},401)
+ c.header('x-auth-mode','api-key');return next()
 }

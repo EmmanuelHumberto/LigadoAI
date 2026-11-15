@@ -1,6 +1,7 @@
 /** Canonical operational endpoints; no arbitrary URL or catch-all proxy. */
 import { timingSafeEqual } from 'node:crypto'
 import { Hono } from 'hono'
+import { readBoundedBody,BodyLimitError,BodyTimeoutError } from './bounded_body'
 
 export function createCognitiveRouter(request: typeof fetch = fetch) {
   const router = new Hono()
@@ -16,8 +17,13 @@ export function createCognitiveRouter(request: typeof fetch = fetch) {
     const expected = process.env.SYSTEMOS_COGNITIVE_TOKEN ?? ''
     const actual = c.req.header('authorization')?.replace(/^Bearer /, '') ?? ''
     if (!expected || Buffer.byteLength(actual) !== Buffer.byteLength(expected) || !timingSafeEqual(Buffer.from(actual), Buffer.from(expected))) return c.json({error: 'unauthorized'}, 401)
-    const text = c.req.method === 'POST' ? await c.req.text() : undefined
-    if (text && Buffer.byteLength(text) > 160 * 1024) return c.json({error: 'payload_too_large'}, 413)
+    let text: string | undefined
+    try { text=c.req.method==='POST'?await readBoundedBody(c.req.raw):undefined }
+    catch(error){
+      if(error instanceof BodyLimitError)return c.json({error:'payload_too_large'},413)
+      if(error instanceof BodyTimeoutError)return c.json({error:'request_timeout'},408)
+      return c.json({error:'invalid_body'},400)
+    }
     const token = path.startsWith('/knowledge/') ? process.env.OPENTRACY_KNOWLEDGE_AUTH_TOKEN
       : (process.env.OPENTRACY_COUS_V3_AUTH_TOKEN || process.env.OPENTRACY_KNOWLEDGE_AUTH_TOKEN)
     try {

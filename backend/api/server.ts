@@ -3,7 +3,7 @@ import { Agent, setGlobalDispatcher } from "undici"
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { logger } from 'hono/logger'
-import { apiKeyAuth } from '../auth/api_key'
+import { apiKeyAuth, assertApiKeysConfigured } from '../auth/api_key'
 import { isMultiTenantEnabled } from '../auth/feature'
 import { authSessionRouter } from '../auth/session'
 import { tenantAuth } from '../auth/tenant'
@@ -41,6 +41,7 @@ process.on('unhandledRejection', (reason) => {
 })
 
 setGlobalDispatcher(new Agent({ headersTimeout: 900000, bodyTimeout: 900000 }))
+assertApiKeysConfigured()
 const app = new Hono()
 
 app.use('*', logger())
@@ -140,7 +141,7 @@ app.route('/v1/billing', billingRouter)
 // Convention: 8001 = python runtime, 8002 = ts backend.
 const port = Number(process.env.PORT ?? 8002)
 
-serve({ fetch: app.fetch, port }, (info) => {
+serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, (info) => {
   console.log(`backend listening on http://127.0.0.1:${info.port}`)
   // Reopen any Slack Socket Mode sessions from persisted installs so
   // restarts don't need user action.
