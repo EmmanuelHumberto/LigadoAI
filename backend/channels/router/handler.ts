@@ -1,3 +1,4 @@
+import { runtimeFetch } from '../../auth/runtime_fetch'
 /**
  * Router channel — proxy to runtime /router/* endpoints (P15.3).
  *
@@ -22,7 +23,7 @@ const getProxy = (runtimePath: string) => async (c: import('hono').Context) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(RUNTIME_URL + runtimePath, { headers: proxyHeaders(c), signal: controller.signal })
+    const res = await runtimeFetch(RUNTIME_URL + runtimePath, { headers: proxyHeaders(c), signal: controller.signal })
     if (!res.ok) {
       const text = await res.text().catch(() => '')
       return c.json(
@@ -50,7 +51,7 @@ routerRouter.get('/config', async (c) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(RUNTIME_URL + '/router/config', { headers: proxyHeaders(c), signal: controller.signal })
+    const res = await runtimeFetch(RUNTIME_URL + '/router/config', { headers: proxyHeaders(c), signal: controller.signal })
     if (!res.ok) {
       const text = await res.text().catch(() => '')
       return c.json(
@@ -80,7 +81,7 @@ routerRouter.put('/config', async (c) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(RUNTIME_URL + '/router/config', {
+    const res = await runtimeFetch(RUNTIME_URL + '/router/config', {
       method: 'PUT',
       headers: { 'content-type': 'application/json', ...proxyHeaders(c) },
       body: JSON.stringify(body),
@@ -121,7 +122,7 @@ routerRouter.post('/decide', async (c) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(RUNTIME_URL + '/router/decide', {
+    const res = await runtimeFetch(RUNTIME_URL + '/router/decide', {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...proxyHeaders(c) },
       body: JSON.stringify(body),

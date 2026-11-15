@@ -1,3 +1,4 @@
+import { runtimeFetch } from '../../auth/runtime_fetch'
 /**
  * Public API channel — operator-facing REST endpoint per agent (P3.3.1).
  *
@@ -52,7 +53,7 @@ apiChannelRouter.post('/:agent_id/chat', async (c) => {
     // Ask the runtime to authenticate + run. Runtime resolves the
     // token, activates the agent context if needed, and invokes the
     // pipeline.
-    const res = await fetch(`${RUNTIME_URL}/api/${encodeURIComponent(agentId)}/chat`, {
+    const res = await runtimeFetch(`${RUNTIME_URL}/api/${encodeURIComponent(agentId)}/chat`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',

@@ -1,3 +1,4 @@
+import { runtimeFetch } from '../../auth/runtime_fetch'
 /**
  * Billing channel — proxy to runtime /tenant/billing + Stripe checkout.
  *
@@ -27,7 +28,7 @@ billingRouter.get('/', async (c) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(`${RUNTIME_URL}/tenant/billing`, {
+    const res = await runtimeFetch(`${RUNTIME_URL}/tenant/billing`, {
       headers: proxyHeaders(c),
       signal: controller.signal,
     })
@@ -54,7 +55,7 @@ billingRouter.post('/checkout', async (c) => {
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
     const body = await c.req.text()
-    const res = await fetch(`${RUNTIME_URL}/billing/checkout`, {
+    const res = await runtimeFetch(`${RUNTIME_URL}/billing/checkout`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',

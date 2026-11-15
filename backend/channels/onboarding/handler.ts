@@ -1,3 +1,4 @@
+import { runtimeFetch } from '../../auth/runtime_fetch'
 /**
  * Onboarding channel — proxy to runtime /onboarding/* endpoints (P1.11).
  *
@@ -41,7 +42,7 @@ const proxy = (
   // onboarding on first login.
   const tenant = proxyHeaders(c)
   try {
-    const res = await fetch(RUNTIME_URL + path, {
+    const res = await runtimeFetch(RUNTIME_URL + path, {
       method,
       headers:
         method === 'POST'

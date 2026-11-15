@@ -1,3 +1,4 @@
+import { runtimeFetch } from '../../auth/runtime_fetch'
 /**
  * Metrics channel — proxy to runtime /metrics/overview.
  *
@@ -16,7 +17,7 @@ metricsRouter.get('/overview', async (c) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(RUNTIME_URL + '/metrics/overview', { headers: proxyHeaders(c), signal: controller.signal })
+    const res = await runtimeFetch(RUNTIME_URL + '/metrics/overview', { headers: proxyHeaders(c), signal: controller.signal })
     if (!res.ok) {
       const text = await res.text().catch(() => '')
       return c.json(

@@ -1,3 +1,4 @@
+import { runtimeFetch } from '../../auth/runtime_fetch'
 /**
  * Slack Socket Mode connection manager.
  *
@@ -64,7 +65,7 @@ function isHandleable(ev: SlackInnerEvent, botUserId: string): boolean {
 }
 
 async function runOnAgent(agentId: string, text: string): Promise<string> {
-  const res = await fetch(`${RUNTIME_URL}/api/${encodeURIComponent(agentId)}/internal-run`, {
+  const res = await runtimeFetch(`${RUNTIME_URL}/api/${encodeURIComponent(agentId)}/internal-run`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ request: text, channel: 'slack' }),
@@ -85,7 +86,7 @@ async function postReply(
 ): Promise<void> {
   const body: Record<string, unknown> = { channel, text }
   if (threadTs) body.thread_ts = threadTs
-  const res = await fetch('https://slack.com/api/chat.postMessage', {
+  const res = await runtimeFetch('https://slack.com/api/chat.postMessage', {
     method: 'POST',
     headers: {
       'content-type': 'application/json; charset=utf-8',

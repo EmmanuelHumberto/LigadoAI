@@ -1,3 +1,4 @@
+import { runtimeFetch } from '../../auth/runtime_fetch'
 /**
  * Dataset channel — proxy to runtime /datasets/* endpoints (P15.4.2).
  *
@@ -23,7 +24,7 @@ const getProxy = (runtimePath: string) => async (c: import('hono').Context) => {
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   const qs = c.req.url.includes('?') ? c.req.url.slice(c.req.url.indexOf('?')) : ''
   try {
-    const res = await fetch(RUNTIME_URL + runtimePath + qs, { headers: proxyHeaders(c), signal: controller.signal })
+    const res = await runtimeFetch(RUNTIME_URL + runtimePath + qs, { headers: proxyHeaders(c), signal: controller.signal })
     // Pass through 4xx that carry user-facing reasons.
     if (res.status === 400 || res.status === 404 || res.status === 409 || res.status === 422) {
       const data = await res.json().catch(() => ({}))
@@ -59,7 +60,7 @@ const bodyProxy = (method: 'POST' | 'PUT', pathBuilder: (c: import('hono').Conte
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
     try {
-      const res = await fetch(RUNTIME_URL + pathBuilder(c), {
+      const res = await runtimeFetch(RUNTIME_URL + pathBuilder(c), {
         method,
         headers: { 'content-type': 'application/json', ...proxyHeaders(c) },
         body: JSON.stringify(body),
@@ -107,7 +108,7 @@ datasetRouter.get('/:name/export', async (c) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(
+    const res = await runtimeFetch(
       RUNTIME_URL + `/datasets/${encodeURIComponent(name)}/export`,
       { signal: controller.signal },
     )
@@ -150,7 +151,7 @@ datasetRouter.delete('/:name', async (c) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(
+    const res = await runtimeFetch(
       RUNTIME_URL + `/datasets/${encodeURIComponent(c.req.param('name') ?? '')}`,
       { method: 'DELETE', signal: controller.signal },
     )

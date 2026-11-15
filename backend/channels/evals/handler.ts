@@ -1,3 +1,4 @@
+import { runtimeFetch } from '../../auth/runtime_fetch'
 /**
  * Evals channel — proxy to runtime /evals/*.
  *
@@ -24,7 +25,7 @@ const proxy = (path: string, handle404 = false, timeoutMs = TIMEOUT_MS) =>
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
     try {
-      const res = await fetch(url, { signal: controller.signal })
+      const res = await runtimeFetch(url, { signal: controller.signal })
       if (handle404 && (res.status === 404 || res.status === 400)) {
         const data = await res.json().catch(() => ({}))
         return c.json(data, res.status as 404 | 400)
@@ -68,7 +69,7 @@ const proxyPost = (
     }
 
     try {
-      const res = await fetch(url, {
+      const res = await runtimeFetch(url, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: opts.forwardBody ? bodyText || '{}' : undefined,

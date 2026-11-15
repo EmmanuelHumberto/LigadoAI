@@ -1,3 +1,4 @@
+import { runtimeFetch } from '../../auth/runtime_fetch'
 /**
  * Lessons channel — proxy to runtime /lessons endpoints.
  *
@@ -23,7 +24,7 @@ lessonsRouter.get('/', async (c) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(RUNTIME_URL + '/lessons', { headers: proxyHeaders(c), signal: controller.signal })
+    const res = await runtimeFetch(RUNTIME_URL + '/lessons', { headers: proxyHeaders(c), signal: controller.signal })
     if (!res.ok) {
       const text = await res.text().catch(() => '')
       return c.json(
@@ -49,7 +50,7 @@ lessonsRouter.get('/:id', async (c) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(`${RUNTIME_URL}/lessons/${encodeURIComponent(id)}`, { headers: proxyHeaders(c), signal: controller.signal,
+    const res = await runtimeFetch(`${RUNTIME_URL}/lessons/${encodeURIComponent(id)}`, { headers: proxyHeaders(c), signal: controller.signal,
     })
     if (res.status === 404) {
       const data = await res.json().catch(() => ({}))
@@ -87,7 +88,7 @@ const reviewAction = (action: 'approve' | 'reject' | 'requeue') =>
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
     try {
-      const res = await fetch(
+      const res = await runtimeFetch(
         `${RUNTIME_URL}/lessons/${encodeURIComponent(id)}/${action}`,
         {
           method: 'POST',
@@ -129,7 +130,7 @@ lessonsRouter.get('/:id/traces', async (c) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(
+    const res = await runtimeFetch(
       `${RUNTIME_URL}/lessons/${encodeURIComponent(id)}/traces`,
       { signal: controller.signal },
     )

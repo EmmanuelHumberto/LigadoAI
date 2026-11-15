@@ -126,6 +126,7 @@ async def lifespan(app: FastAPI):
     loaded = load_env()
     if loaded:
         logger.info(".env loaded: %d key(s)", len(loaded))
+    validate_security_config()
     _include_feature_routers()
 
     # P16.1 — multi-tenant migration runs ONLY when the hosted/infra
@@ -200,7 +201,10 @@ async def lifespan(app: FastAPI):
         _state.clear()
 
 
+from runtime.security import RuntimeSecurityMiddleware, validate_security_config
+
 app = FastAPI(title="opentracy-runtime", lifespan=lifespan)
+app.add_middleware(RuntimeSecurityMiddleware)
 
 
 def _include_knowledge_router() -> None:

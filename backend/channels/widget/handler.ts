@@ -1,3 +1,4 @@
+import { runtimeFetch } from '../../auth/runtime_fetch'
 /**
  * Web widget channel (P3.5).
  *
@@ -37,7 +38,7 @@ const proxyPublic = async (
     if (origin) headers['origin'] = origin
     if (init?.headers) Object.assign(headers, init.headers as Record<string, string>)
 
-    const res = await fetch(RUNTIME_URL + path, {
+    const res = await runtimeFetch(RUNTIME_URL + path, {
       ...init,
       headers,
       signal: controller.signal,

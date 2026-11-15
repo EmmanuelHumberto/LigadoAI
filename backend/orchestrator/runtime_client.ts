@@ -1,3 +1,4 @@
+import { runtimeFetch } from '../auth/runtime_fetch'
 /**
  * Typed client for the Python runtime service.
  *
@@ -77,7 +78,7 @@ export async function runAgent(
   const timer = setTimeout(() => controller.abort(), timeoutMs)
 
   try {
-    const res = await fetch(url, {
+    const res = await runtimeFetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ request, history, session_id }),
@@ -111,7 +112,7 @@ export async function runAgent(
 
 export async function checkRuntimeHealth(opts: ClientOptions = {}): Promise<HealthResponse> {
   const url = resolveUrl(opts) + '/health'
-  const res = await fetch(url)
+  const res = await runtimeFetch(url)
   if (!res.ok) {
     throw new RuntimeError(`runtime health check returned ${res.status}`, res.status)
   }

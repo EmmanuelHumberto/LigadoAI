@@ -1,3 +1,4 @@
+import { runtimeFetch } from '../../auth/runtime_fetch'
 /**
  * Policy channel — proxy to runtime /policy endpoint.
  *
@@ -17,7 +18,7 @@ policyRouter.get('/', async (c) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(RUNTIME_URL + '/policy', { headers: proxyHeaders(c), signal: controller.signal })
+    const res = await runtimeFetch(RUNTIME_URL + '/policy', { headers: proxyHeaders(c), signal: controller.signal })
     if (!res.ok) {
       const text = await res.text().catch(() => '')
       return c.json(
@@ -47,7 +48,7 @@ policyRouter.put('/', async (c) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(RUNTIME_URL + '/policy', {
+    const res = await runtimeFetch(RUNTIME_URL + '/policy', {
       method: 'PUT',
       headers: { 'content-type': 'application/json', ...proxyHeaders(c) },
       body: JSON.stringify(body),

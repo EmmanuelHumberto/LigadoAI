@@ -1,3 +1,4 @@
+import { runtimeFetch } from './runtime_fetch'
 /**
  * Per-tenant Bearer auth middleware (P16.1).
  *
@@ -42,7 +43,7 @@ async function resolveTenant(token: string): Promise<string | null> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 5_000)
   try {
-    const res = await fetch(RUNTIME_URL + RESOLVE_PATH, {
+    const res = await runtimeFetch(RUNTIME_URL + RESOLVE_PATH, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',

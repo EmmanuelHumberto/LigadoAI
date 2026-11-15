@@ -1,3 +1,4 @@
+import { runtimeFetch } from '../../auth/runtime_fetch'
 /**
  * Versions channel — proxy to runtime /versions endpoints.
  *
@@ -22,7 +23,7 @@ versionsRouter.get('/', async (c) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(RUNTIME_URL + '/versions', { headers: proxyHeaders(c), signal: controller.signal })
+    const res = await runtimeFetch(RUNTIME_URL + '/versions', { headers: proxyHeaders(c), signal: controller.signal })
     if (!res.ok) {
       const text = await res.text().catch(() => '')
       return c.json(
@@ -60,7 +61,7 @@ versionsRouter.post('/:version/rollback', async (c) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(`${RUNTIME_URL}/versions/${encodeURIComponent(version)}/rollback`, {
+    const res = await runtimeFetch(`${RUNTIME_URL}/versions/${encodeURIComponent(version)}/rollback`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...proxyHeaders(c) },
       body: JSON.stringify(parsed.data),

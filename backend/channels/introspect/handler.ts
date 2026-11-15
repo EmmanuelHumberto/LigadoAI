@@ -1,3 +1,4 @@
+import { runtimeFetch } from '../../auth/runtime_fetch'
 /**
  * Introspection channel — proxy to runtime /introspect.
  *
@@ -41,7 +42,7 @@ introspectRouter.post('/', async (c) => {
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
 
   try {
-    const res = await fetch(RUNTIME_URL + '/introspect', {
+    const res = await runtimeFetch(RUNTIME_URL + '/introspect', {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...proxyHeaders(c) },
       body: JSON.stringify(parsed.data),

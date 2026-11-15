@@ -1,3 +1,4 @@
+import { runtimeFetch } from '../../auth/runtime_fetch'
 /**
  * Admin channel — proxies operator-only routes to the runtime (P16.1).
  *
@@ -41,7 +42,7 @@ const proxy = (
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
     const writeMethod = method === 'POST'
-    const res = await fetch(RUNTIME_URL + pathBuilder(c), {
+    const res = await runtimeFetch(RUNTIME_URL + pathBuilder(c), {
       method,
       headers: writeMethod ? { 'content-type': 'application/json' } : undefined,
       body: writeMethod ? JSON.stringify(body ?? {}) : undefined,

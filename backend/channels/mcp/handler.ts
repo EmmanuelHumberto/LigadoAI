@@ -1,3 +1,4 @@
+import { runtimeFetch } from '../../auth/runtime_fetch'
 /**
  * MCP HTTP/SSE proxy (P16.2.S5).
  *
@@ -57,7 +58,7 @@ mcpRouter.all('*', async (c) => {
 
   let upstream: Response
   try {
-    upstream = await fetch(upstreamUrl, init)
+    upstream = await runtimeFetch(upstreamUrl, init)
   } catch (e) {
     const reason = e instanceof Error ? e.message : 'fetch failed'
     return c.json({ error: 'runtime_unavailable', detail: reason }, 502)

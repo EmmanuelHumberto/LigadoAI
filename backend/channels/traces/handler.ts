@@ -1,3 +1,4 @@
+import { runtimeFetch } from '../../auth/runtime_fetch'
 /**
  * Traces channel — proxy to runtime /traces.
  *
@@ -21,7 +22,7 @@ export const tracesRouter = new Hono()
 // wins. No client-side timeout — the connection is long-lived. The upstream
 // fetch is cancelled when the downstream client disconnects.
 tracesRouter.get('/stream', async (c) => {
-  const upstream = await fetch(`${RUNTIME_URL}/traces/stream`, {
+  const upstream = await runtimeFetch(`${RUNTIME_URL}/traces/stream`, {
     headers: { Accept: 'text/event-stream', ...proxyHeaders(c) },
     signal: c.req.raw.signal,
   })
@@ -49,7 +50,7 @@ tracesRouter.get('/', async (c) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(url, { headers: proxyHeaders(c), signal: controller.signal })
+    const res = await runtimeFetch(url, { headers: proxyHeaders(c), signal: controller.signal })
     if (!res.ok) {
       const text = await res.text().catch(() => '')
       return c.json(
@@ -76,7 +77,7 @@ const traceLikeProxy = (path: (id: string) => string) =>
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
     try {
-      const res = await fetch(`${RUNTIME_URL}${path(id)}`, { headers: proxyHeaders(c), signal: controller.signal })
+      const res = await runtimeFetch(`${RUNTIME_URL}${path(id)}`, { headers: proxyHeaders(c), signal: controller.signal })
       if (res.status === 404) {
         const data = await res.json().catch(() => ({}))
         return c.json(data, 404)
@@ -121,7 +122,7 @@ tracesRouter.post('/:id/flag', async (c) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(
+    const res = await runtimeFetch(
       `${RUNTIME_URL}/traces/${encodeURIComponent(id)}/flag`,
       {
         method: 'POST',
@@ -158,7 +159,7 @@ tracesRouter.delete('/:id/flag', async (c) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(
+    const res = await runtimeFetch(
       `${RUNTIME_URL}/traces/${encodeURIComponent(id)}/flag`,
       { method: 'DELETE', signal: controller.signal },
     )
@@ -196,7 +197,7 @@ tracesRouter.post('/:id/feedback', async (c) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(
+    const res = await runtimeFetch(
       `${RUNTIME_URL}/traces/${encodeURIComponent(id)}/feedback`,
       {
         method: 'POST',

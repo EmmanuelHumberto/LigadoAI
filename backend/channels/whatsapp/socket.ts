@@ -1,3 +1,4 @@
+import { runtimeFetch } from '../../auth/runtime_fetch'
 /**
  * WhatsApp via Baileys.
  *
@@ -101,7 +102,7 @@ export function hasPersistedCreds(agentId: string): boolean {
 }
 
 async function runOnAgent(agentId: string, text: string): Promise<string> {
-  const res = await fetch(`${RUNTIME_URL}/api/${encodeURIComponent(agentId)}/internal-run`, {
+  const res = await runtimeFetch(`${RUNTIME_URL}/api/${encodeURIComponent(agentId)}/internal-run`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ request: text, channel: 'whatsapp' }),

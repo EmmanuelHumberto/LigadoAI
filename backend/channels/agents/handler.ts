@@ -1,3 +1,4 @@
+import { runtimeFetch } from '../../auth/runtime_fetch'
 /**
  * Agents channel — proxy to runtime /agents/* endpoints (P2.0).
  *
@@ -47,7 +48,7 @@ const proxy = (
     const headers = writeMethod
       ? { 'content-type': 'application/json', ...proxyHeaders(c) }
       : proxyHeaders(c)
-    const res = await fetch(RUNTIME_URL + pathBuilder(c), {
+    const res = await runtimeFetch(RUNTIME_URL + pathBuilder(c), {
       method,
       headers,
       body: writeMethod ? JSON.stringify(body ?? {}) : undefined,

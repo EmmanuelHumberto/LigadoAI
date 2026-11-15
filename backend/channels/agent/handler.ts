@@ -1,3 +1,4 @@
+import { runtimeFetch } from '../../auth/runtime_fetch'
 /**
  * Agent channel — proxy to runtime /agent/* endpoints.
  *
@@ -18,7 +19,7 @@ agentRouter.get('/config', async (c) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(RUNTIME_URL + '/agent/config', { headers: proxyHeaders(c), signal: controller.signal })
+    const res = await runtimeFetch(RUNTIME_URL + '/agent/config', { headers: proxyHeaders(c), signal: controller.signal })
     if (!res.ok) {
       const text = await res.text().catch(() => '')
       return c.json(
@@ -48,7 +49,7 @@ const putProxy = (path: string) => async (c: import('hono').Context) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(`${RUNTIME_URL}${path}`, {
+    const res = await runtimeFetch(`${RUNTIME_URL}${path}`, {
       method: 'PUT',
       headers: { 'content-type': 'application/json', ...proxyHeaders(c) },
       body: JSON.stringify(body),
