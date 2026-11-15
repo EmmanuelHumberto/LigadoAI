@@ -1,5 +1,7 @@
 # Dedicated OpenTracy account - active Linux isolation
 
+Current production source: 7b5516d56169020cb6b5d9003a23221cfda4dedf. The same isolated account/state directory now also uses restricted database credentials, UID egress controls and bounded diagnosis queues. See PRIVILEGIOS_EGRESS_FILA_2026-11-15.md for the latest publication proof. The earlier source identifiers below describe the chronological isolation rollout.
+
 Runtime and gateway form one application and share agent/channel state. The host boundary uses one exclusive system account, ligado-opentracy, with no Docker/sudo membership and no interactive login. It does not separate gateway from runtime within this application. The SSH tunnel remains under its existing account; application processes cannot read its credentials.
 
 The disk has approximately 3.3 GiB free. Python dependencies occupy 5.2 GiB and are reused via selected read-only systemd bind mounts; Node dependencies and Hugging Face hub artifacts are read-only too. The Hugging Face token directory is not mounted. Startup still depends on these original dependency directories until later managed relocation. Other personal directories are inaccessible. Nothing is deleted from the original installation.
