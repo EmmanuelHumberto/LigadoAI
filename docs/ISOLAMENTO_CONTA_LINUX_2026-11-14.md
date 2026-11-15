@@ -1,4 +1,4 @@
-# Dedicated OpenTracy account - staged Linux isolation
+# Dedicated OpenTracy account - active Linux isolation
 
 Runtime and gateway form one application and share agent/channel state. The host boundary uses one exclusive system account, ligado-opentracy, with no Docker/sudo membership and no interactive login. It does not separate gateway from runtime within this application. The SSH tunnel remains under its existing account; application processes cannot read its credentials.
 
@@ -47,3 +47,13 @@ Publisher 263b576 rolled back before handover. Its real runtime passed isolation
 ## Gateway authorization contract correction
 
 Publisher 89d438b rolled back before handover because its verification incorrectly expected the Cous knowledge token to access gateway /v1/agent/config. The real Cous client reads runtime /agent/config directly; the runtime intentionally permits that scoped read, while gateway /v1 administration accepts BACKEND_API_KEYS only. No gateway permission is broadened. The publisher now requires anonymous=401, operator=200 and knowledge=401 on the gateway, plus the existing runtime knowledge=200 and policy knowledge=401 checks. Regression cases reject each inverted permission result. Runtime/gateway legacy services remain healthy after rollback. A new root activation remains pending.
+
+## Production activation verified — November 15, 2026
+
+The operator's saved administrative result confirms ACTIVATED at 2026-11-15T04:55:37.616543+00:00 (01:55:37 Sao Paulo). Source is ff858d329c66049f97186f29ef621de12329e3ca and publisher is afb14357d732b8ffd9ca36bd67c4b74d219173c2. These identifiers intentionally differ: the publisher activates the previously proven immutable source and records its own version separately. Fresh state contained 644 verified files; the queue had zero active requests and zero processing callbacks before cutover.
+
+Independent post-activation checks confirmed system units ligado-opentracy-runtime and ligado-opentracy-gateway active/enabled under ligado-opentracy, with ProtectSystem=strict, ProtectHome=yes, NoNewPrivileges=yes and empty CapabilityBoundingSet. Legacy user services are inactive/disabled with MainPID=0. The unchanged user SSH tunnel remains active. The public root-owned marker points at the source above. Only loopback 8001/8002 listen; the temporary gateway test port 18012 is closed. Anonymous configuration reads return 401; both health endpoints return 200.
+
+The real SystemOS API container in the VPS completed its authenticated gateway-to-runtime configuration read with HTTP 200. The actual Cous client, using its existing config/token provider, read runtime configuration successfully and reported backend/runtime health true. Neither Cous nor firmware was restarted; no real inference, financial operation or Drive synchronization was executed. The main security boundary is now active in production.
+
+Still not proven: behavior after a host reboot and a real customer-requested inference under this account. Dependencies remain read-only binds from the previous installation, runtime and gateway intentionally share one application account, and broader database role/egress/background-queue review remains separate follow-up work. Do not restart legacy writers against their preserved pre-cutover state.
