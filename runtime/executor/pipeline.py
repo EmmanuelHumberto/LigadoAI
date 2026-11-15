@@ -9,6 +9,7 @@ canonical input to the trace writer (P1.7) and to the eval runners.
 from __future__ import annotations
 
 import time
+import threading
 from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
 
@@ -66,12 +67,24 @@ class ExecutionRecord:
 
 
 class PipelineExecutor:
-    """Runs a compiled Pipeline. One executor per Pipeline; thread-unsafe."""
+    """Runs a compiled Pipeline. One executor per Pipeline; shared calls are serialized."""
 
     def __init__(self, pipeline: Pipeline) -> None:
         self.pipeline = pipeline
+        self._run_lock = threading.RLock()
 
     def run(
+        self,
+        request: str,
+        history: Optional[list[Message]] = None,
+        session_id: Optional[str] = None,
+    ) -> tuple[Context, ExecutionRecord]:
+        # Sync API/widget channels also share this executor. Keep stage/model
+        # instances serialized when /run executes outside the event loop.
+        with self._run_lock:
+            return self._run_unlocked(request, history=history, session_id=session_id)
+
+    def _run_unlocked(
         self,
         request: str,
         history: Optional[list[Message]] = None,

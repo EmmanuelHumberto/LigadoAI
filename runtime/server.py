@@ -2162,12 +2162,21 @@ async def update_route(payload: RouteUpdateRequest) -> RouteUpdateResponse:
 
 @app.post("/run", response_model=RunResponse)
 async def run(payload: RunRequest) -> RunResponse:
-    import uuid
-    from runtime.tenants import quota
+    from runtime.executor.dispatch import PipelineBusyError, pipeline_dispatcher
 
-    executor: Optional[PipelineExecutor] = _state.get("executor")
+    executor = _state.get("executor")
     if not executor:
         raise HTTPException(status_code=503, detail="agent not yet loaded")
+    try:
+        return await pipeline_dispatcher.execute(_execute_run, payload, executor)
+    except PipelineBusyError:
+        raise HTTPException(status_code=429, detail="analysis_busy", headers={"Retry-After": "5"})
+
+
+def _execute_run(payload: RunRequest, executor: PipelineExecutor) -> RunResponse:
+    """All synchronous inference, quota accounting and trace writes stay in the worker."""
+    import uuid
+    from runtime.tenants import quota
 
     # Tier gates (cheap → expensive):
     #   1. Rate limit (instant, in-memory) — stops runaway loops

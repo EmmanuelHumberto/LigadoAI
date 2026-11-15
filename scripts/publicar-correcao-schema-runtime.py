@@ -13,10 +13,13 @@ import shutil
 import signal
 import subprocess
 import tarfile
+import time
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 BASE = Path('/home/hiatus/Projetos/ligadotattoo/OpenTracy')
 TOP = Path('/var/lib/ligado-opentracy')
-PREVIOUS = '7b5516d56169020cb6b5d9003a23221cfda4dedf'
+PREVIOUS = '1831c2f162bf2cfb0a4faeb10104b827f4d61033'
 MARKER = Path('/etc/ligado-opentracy-production-active')
 UNITS = ('ligado-opentracy-runtime', 'ligado-opentracy-gateway')
 STATE_VERSION = 'ff858d329c66'
@@ -40,6 +43,39 @@ def verify_knowledge_reads(activation, runtime_values, gateway_values):
     assert activation.http_status(8002, path) == 401
 
 
+def verify_live_dispatch(activation, values):
+    """A synthetic real inference must coexist with health and protected reads."""
+    knowledge = values[0]['OPENTRACY_KNOWLEDGE_AUTH_TOKEN']
+    integration = values[1]['SYSTEMOS_COGNITIVE_TOKEN']
+    def inference():
+        request = urllib.request.Request('http://127.0.0.1:8001/run',
+            data=json.dumps({'request': 'Teste sintetico de disponibilidade. Responda somente OK. Nao ha dados de cliente.',
+                             'session_id': 'synthetic-availability-probe'}).encode(),
+            headers={'content-type': 'application/json',
+                     'x-opentracy-runtime-key': values[0]['OPENTRACY_RUNTIME_INTERNAL_TOKEN']})
+        with urllib.request.urlopen(request, timeout=905) as response:
+            return json.load(response)
+    # On a probe failure, wait for accepted work before a rollback can stop it.
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pending = pool.submit(inference)
+        probes = 0
+        for _ in range(3):
+            if pending.done(): break
+            started = time.monotonic()
+            assert activation.http_status(8001, '/health') == 200
+            path = '/knowledge/jobs/7385f41d-acee-4f0d-a0e7-b7f358210b41'
+            assert activation.http_status(8001, path, knowledge) == 200
+            assert activation.http_status(8002, path, integration) == 200
+            assert time.monotonic() - started < 5, 'Reads blocked during inference'
+            probes += 1
+            time.sleep(.25)
+        result = pending.result(timeout=910)
+    assert result.get('success') is True
+    assert not str(result.get('response', '')).startswith(('[error]', '[offline]'))
+    assert probes > 0, 'No overlapping availability observation'
+    return {'syntheticInferenceSucceeded': True, 'overlappingReadRounds': probes}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--expected-commit', required=True)
@@ -60,7 +96,7 @@ def main():
     # Do not interrupt inference or a customer request, including a still-running webhook.
     for port in (8001, 8002):
         assert not run(['ss', '-Hnt', 'state', 'established', 'sport', '=', ':' + str(port)]), 'Active requests; retry after they finish'
-    current_envs = [Path('/etc/ligado-opentracy/resources-' + component + '-' + PREVIOUS[:12] + '.env') for component in ('runtime', 'gateway')]
+    current_envs = [Path('/etc/ligado-opentracy/schema-' + component + '-' + PREVIOUS[:12] + '.env') for component in ('runtime', 'gateway')]
     values = [prep.parse_env(path.read_text()) for path in current_envs]
     assert values[0]['OPENTRACY_DATABASE_ROLE_REQUIRED'] == 'opentracy_runtime'
     assert values[0]['OPENTRACY_EGRESS_REQUIRED'] == '1'
@@ -70,7 +106,7 @@ def main():
     cache = Path('/var/cache/ligado-opentracy') / STATE_VERSION
     previous_release = Path('/opt/ligado-opentracy/releases') / PREVIOUS
     release = previous_release.parent / sha
-    operation = TOP / 'schema-corrections' / sha
+    operation = TOP / 'pipeline-corrections' / sha
     assert not release.exists() and not operation.exists()
     assert shutil.disk_usage(TOP).free > 512 * 1024 * 1024
     identity = pwd.getpwnam('ligado-opentracy')
@@ -126,10 +162,12 @@ def main():
         activation.health(8002)
         activation.verify_gateway_contract(8002, token, knowledge)
         verify_knowledge_reads(activation, values[0], values[1])
+        availability = verify_live_dispatch(activation, values)
         assert run(['systemctl', 'is-active', 'ligado-opentracy-egress']) == 'active'
         replace(MARKER, (sha + '\n').encode(), 0o644)
         result = dict(result='PUBLISHED', sourceCommit=sha, previousSource=PREVIOUS,
                       realKnowledgeJobRead=200, lazyAdaptersRestrictedRoleVerified=True,
+                      inferenceAvailability=availability,
                       databasePrivilegesUnchanged=True, firewallUnchanged=True, stateDirectoryUnchanged=True,
                       migrationsExecuted=False, cousRestarted=False, financialOperationExecuted=False,
                       executedAt=datetime.datetime.now(datetime.timezone.utc).isoformat())
