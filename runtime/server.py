@@ -1919,6 +1919,15 @@ def _resolve_prompt_path() -> Path:
     return (_AGENT_DIR / "pipeline" / rel).resolve()
 
 
+def _prompt_relative_path(prompt_path: Path) -> Path:
+    """Return the stable API path even when agent state is outside the release."""
+    try:
+        relative = prompt_path.resolve().relative_to(_AGENT_DIR.resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="resolved prompt path escapes agent/")
+    return Path("agent") / relative
+
+
 def _mask_key(value: str) -> str:
     if len(value) <= 10:
         return "•" * len(value)
@@ -1935,6 +1944,7 @@ async def get_agent_config() -> AgentConfigView:
         raise HTTPException(status_code=503, detail="agent not yet loaded")
 
     prompt_path = _resolve_prompt_path()
+    prompt_relative = _prompt_relative_path(prompt_path)
     prompt_content = ""
     if prompt_path.exists():
         with prompt_path.open() as f:
@@ -2010,7 +2020,7 @@ async def get_agent_config() -> AgentConfigView:
         version=cfg.version,
         description=cfg.description,
         system_prompt=AgentPromptView(
-            path=str(prompt_path.relative_to(_PROJECT_ROOT_AGENT)),
+            path=str(prompt_relative),
             content=prompt_content,
         ),
         models=models,
@@ -2046,10 +2056,7 @@ async def update_prompt(payload: PromptUpdateRequest) -> PromptUpdateResponse:
     from harness.executor.promote import record_manual_change
 
     prompt_path = _resolve_prompt_path()
-    if not str(prompt_path).startswith(str(_AGENT_DIR.resolve())):
-        raise HTTPException(status_code=400, detail="resolved prompt path escapes agent/")
-
-    rel_path = prompt_path.relative_to(_PROJECT_ROOT_AGENT)
+    rel_path = _prompt_relative_path(prompt_path)
 
     def _write_prompt() -> None:
         prompt_path.parent.mkdir(parents=True, exist_ok=True)
