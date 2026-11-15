@@ -160,3 +160,12 @@ def test_activation_refuses_each_gateway_auth_contract_violation(activation, mon
     monkeypatch.setattr(activation, 'http_status', read)
     with pytest.raises(AssertionError):
         activation.verify_gateway_contract(18012, 'operator', 'knowledge')
+
+
+def test_legacy_inhibitor_remains_readable_to_user_systemd(activation, tmp_path):
+    prep = module('preparation_for_dropin', 'preparar-conta-opentracy.py')
+    path = tmp_path / 'gateway.service.d/90-exclusive-isolated.conf'
+    activation.install_legacy_inhibitor(prep, path)
+    assert path.parent.stat().st_mode & 0o777 == 0o755
+    assert path.stat().st_mode & 0o777 == 0o644
+    assert path.read_text() == '[Unit]\nConditionPathExists=!' + str(activation.MARKER) + '\n'

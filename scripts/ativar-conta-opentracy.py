@@ -130,6 +130,15 @@ def replace_state(prep, work, identity):
     return before
 
 
+def install_legacy_inhibitor(prep, path):
+    # User systemd must be able to traverse this directory and read the drop-in.
+    # It contains no secrets; the application account cannot access this home.
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
+    path.parent.chmod(0o755)
+    prep.private_file(path, ('[Unit]\nConditionPathExists=!' + str(MARKER) + '\n').encode())
+    path.chmod(0o644)
+
+
 def replace_configuration(prep, path, values, gid):
     assert path.is_file() and not path.is_symlink()
     temporary = path.with_name(path.name + '.' + secrets.token_hex(8))
@@ -288,8 +297,7 @@ def main():
         # Commit the handover before reopening writers. From this point a failure
         # must preserve the isolated state; never silently start stale legacy data.
         for path in drops:
-            prep.private_file(path, ('[Unit]\nConditionPathExists=!' + str(MARKER) + '\n').encode())
-            path.chmod(0o644)
+            install_legacy_inhibitor(prep, path)
             installed_drops.append(path)
         prep.user_systemctl('daemon-reload')
         prep.user_systemctl('disable', *OLD)
