@@ -25,3 +25,9 @@ After root proof, prepare a reviewed cutover with a fresh state snapshot, idle q
 ## Candidate failure identified on November 15
 
 The first privileged preparation started both isolated candidates and passed sandbox pre-start checks, but GET /agent/config returned 500: its resolved prompt path was under writable state while serialization computed a path relative to immutable source. Production services were not switched. Prompt paths now use a stable agent-relative API path for reads and edits, validating containment before reading; sibling-prefix and symlink escapes are rejected. Regression tests call the configuration endpoint with both colocated and separated state. A new privileged preparation is still required; this code correction is not production cutover.
+
+## Privileged candidate proof completed
+
+Operator output saved on the Linux desktop confirms READY_NOT_ACTIVATED at 2026-11-15T03:48:38.198196+00:00 (00:48 Sao Paulo) for ff858d329c66049f97186f29ef621de12329e3ca. Both candidate components ran as UID 997 with no Docker group, Docker socket and personal-file access denied, source/dependency writes denied, state writes allowed, NoNewPrivileges and no effective capabilities. Canonical storage source loaded from the release. Both health checks returned 200 and 644 state files were verified. Candidates received no production database credentials. Existing production services were unchanged and remain active. This verifies the candidate sandbox, not production cutover, database integration or inference under the new account.
+
+Next cutover must quiesce legacy writers, recheck the diagnosis queue, take a fresh state snapshot and retain rollback that preserves writes. Do not start production using the older candidate snapshot. The dedicated-account migration is still pending.
