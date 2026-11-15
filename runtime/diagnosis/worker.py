@@ -6,8 +6,10 @@ import asyncio
 import contextlib
 import json
 import logging
+import math
 from typing import Any
 from uuid import UUID, uuid4
+from runtime.diagnosis.limits import QUEUE_LOCK, positive_int, canonical_callback
 
 import httpx
 
@@ -50,7 +52,19 @@ class DiagnosisWorker:
         poll_interval: float = 5.0,
         max_retries: int = 3,
         diagnosis_timeout: float = 30.0,
+        max_concurrent: int = 2,
+        max_callback_attempts: int = 8,
     ) -> None:
+        if not 1 <= max_concurrent <= 4 or not 1 <= max_callback_attempts <= 20:
+            raise ValueError("Invalid worker capacity")
+        if not math.isfinite(diagnosis_timeout) or not 0 < diagnosis_timeout <= 300:
+            raise ValueError("Invalid diagnosis timeout")
+        if not 1 <= max_retries <= 5 or not math.isfinite(poll_interval) or not 0 < poll_interval <= 300:
+            raise ValueError("Invalid retry or polling limit")
+        self._max_concurrent = max_concurrent
+        self._max_callback_attempts = max_callback_attempts
+        self._jobs: set[asyncio.Task] = set()
+        self._claim_lock = asyncio.Lock()
         self._repo = repository
         self._http = http_client
         self._poll_interval = poll_interval
@@ -75,6 +89,10 @@ class DiagnosisWorker:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._task
             self._task = None
+        for job in tuple(self._jobs):
+            job.cancel()
+        if self._jobs:
+            await asyncio.gather(*tuple(self._jobs), return_exceptions=True)
         logger.info("DiagnosisWorker parado")
 
     async def _loop(self) -> None:
@@ -87,25 +105,44 @@ class DiagnosisWorker:
             await asyncio.sleep(self._poll_interval)
 
     async def _process_pending(self) -> None:
-        async with self._repo._pool.acquire() as conn:
-            rows = await conn.fetch(
-                """
-                UPDATE diagnosis_queue
-                SET status = 'processing', attempts = attempts + 1,
-                    last_attempt_at = NOW()
-                WHERE id IN (
-                    SELECT id FROM diagnosis_queue
-                    WHERE status = 'pending'
-                    ORDER BY queued_at ASC
-                    LIMIT 5
-                    FOR UPDATE SKIP LOCKED
-                )
-                RETURNING *
-                """
-            )
+        async with self._claim_lock:
+            slots = self._max_concurrent - len(self._jobs)
+            if slots <= 0:
+                return
+            async with self._repo._pool.acquire() as conn:
+                async with conn.transaction():
+                    await conn.execute("SELECT pg_advisory_xact_lock($1)", QUEUE_LOCK)
+                    lease = math.ceil(self._diagnosis_timeout * self._max_retries + 2 ** self._max_retries + 60)
+                    await conn.execute("""UPDATE diagnosis_queue SET status='failed',
+                        error_message='Worker lease expired; explicit retry required'
+                        WHERE status='processing' AND (last_attempt_at IS NULL OR last_attempt_at < NOW() - make_interval(secs => $1))""", lease)
+                    active = await conn.fetchval("SELECT count(*) FROM diagnosis_queue WHERE status = 'processing'")
+                    slots = min(slots, max(0, self._max_concurrent - active))
+                    if not slots:
+                        return
+                    rows = await conn.fetch(
+                        """UPDATE diagnosis_queue
+                        SET status = 'processing', attempts = attempts + 1, last_attempt_at = NOW()
+                        WHERE id IN (SELECT id FROM diagnosis_queue WHERE status = 'pending'
+                          ORDER BY queued_at ASC LIMIT $1 FOR UPDATE SKIP LOCKED)
+                        RETURNING *""", slots)
+            for row in rows:
+                task = asyncio.create_task(self._run_claimed(row))
+                self._jobs.add(task)
+                task.add_done_callback(self._job_finished)
 
-        for row in rows:
-            asyncio.create_task(self._process_one(row))
+    def _job_finished(self, task):
+        self._jobs.discard(task)
+        if not task.cancelled() and task.exception() is not None:
+            logger.error("Diagnosis task failed; inspect queue state")
+
+    async def _run_claimed(self, row):
+        try:
+            await self._process_one(row)
+        except asyncio.CancelledError:
+            async with self._repo._pool.acquire() as conn:
+                await conn.execute("UPDATE diagnosis_queue SET status='pending' WHERE id=$1 AND status='processing'", row["id"])
+            raise
 
     async def _process_one(self, row: Any) -> None:
         item_id = row["id"]
@@ -118,13 +155,13 @@ class DiagnosisWorker:
         result: dict[str, Any] | None = None
         for attempt in range(1, self._max_retries + 1):
             try:
-                result = await self._run_diagnosis(
+                result = await asyncio.wait_for(self._run_diagnosis(
                     item_id,
                     capture_session_id,
                     instance_id,
                     queued_evidence_set=self._row_json(row, "evidence_set", []),
                     queued_context=self._row_json(row, "context", {}),
-                )
+                ), timeout=self._diagnosis_timeout)
                 break
             except Exception as e:
                 last_error = f"{type(e).__name__}: {e}"
@@ -162,6 +199,7 @@ class DiagnosisWorker:
                     SELECT id
                     FROM diagnosis_queue
                     WHERE callback_status IN ('pending', 'failed')
+                      AND callback_attempts < $1
                       AND result_payload IS NOT NULL
                       AND (
                           callback_next_attempt_at IS NULL
@@ -172,7 +210,7 @@ class DiagnosisWorker:
                     FOR UPDATE SKIP LOCKED
                 )
                 RETURNING id, result_payload
-                """
+                """, self._max_callback_attempts
             )
 
         for row in rows:
@@ -1109,6 +1147,7 @@ class DiagnosisWorker:
                 callback_url = row["callback_endpoint"] or callback_url
             except (KeyError, TypeError):
                 pass
+        callback_url = canonical_callback(callback_url)
         try:
             response = await self._http.post(
                 callback_url,
@@ -1122,7 +1161,7 @@ class DiagnosisWorker:
                     "explanation": result.get("explanation"),
                     "error": result.get("error"),
                 },
-                timeout=10.0,
+                timeout=10.0, follow_redirects=False,
             )
             response.raise_for_status()
             logger.info("Callback enviado para %s: correlation_id=%s, hypotheses=%d",

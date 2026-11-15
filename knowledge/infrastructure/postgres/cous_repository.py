@@ -96,6 +96,9 @@ class CousKnowledgeRepository:
 
     @classmethod
     async def connect(cls, dsn: str, **kwargs: Any) -> CousKnowledgeRepository:
+        kwargs.setdefault("min_size", 1)
+        kwargs.setdefault("max_size", 4)
+        kwargs.setdefault("command_timeout", 30)
         pool = await asyncpg.create_pool(dsn=dsn, **kwargs)
         return cls(pool)
 

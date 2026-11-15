@@ -1,0 +1,12 @@
+table inet ligado_opentracy_egress {
+ chain output {
+  type filter hook output priority -10; policy accept;
+  meta skuid @UID@ jump application
+ }
+ chain application {
+  ct state established,related accept
+  ip daddr 127.0.0.1 tcp dport { 5432, 8000, 8001, 8010, 11437, 13301 } accept
+  ip6 daddr ::1 tcp dport { 5432, 8000, 8001, 8010, 11437, 13301 } accept
+  counter reject with icmpx type admin-prohibited
+ }
+}

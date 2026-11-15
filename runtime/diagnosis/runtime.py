@@ -12,6 +12,7 @@ from fastapi import APIRouter
 
 from runtime.diagnosis.routes import create_diagnosis_router
 from runtime.diagnosis.worker import DiagnosisWorker
+from runtime.diagnosis.limits import positive_int
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,8 @@ class DiagnosisRuntimeConfig:
     poll_interval: float = 5.0
     max_retries: int = 3
     diagnosis_timeout: float = 30.0
+    max_concurrent: int = 2
+    max_callback_attempts: int = 8
 
     @classmethod
     def from_env(cls) -> DiagnosisRuntimeConfig:
@@ -44,6 +47,8 @@ class DiagnosisRuntimeConfig:
             poll_interval=_float_env("OPENTRACY_DIAGNOSIS_POLL_INTERVAL", 5.0),
             max_retries=_int_env("OPENTRACY_DIAGNOSIS_MAX_RETRIES", 3),
             diagnosis_timeout=_float_env("OPENTRACY_DIAGNOSIS_TIMEOUT", 30.0),
+            max_concurrent=positive_int("OPENTRACY_DIAGNOSIS_MAX_CONCURRENT", 2, 4),
+            max_callback_attempts=positive_int("OPENTRACY_DIAGNOSIS_CALLBACK_ATTEMPTS", 8, 20),
         )
 
 
@@ -69,7 +74,7 @@ class LazyPostgresPool:
                 return self._pool
             import asyncpg
 
-            self._pool = await asyncpg.create_pool(dsn=self._dsn)
+            self._pool = await asyncpg.create_pool(dsn=self._dsn, min_size=1, max_size=4, command_timeout=30)
             return self._pool
 
 
@@ -153,6 +158,8 @@ class DiagnosisRuntime:
             poll_interval=self.config.poll_interval,
             max_retries=self.config.max_retries,
             diagnosis_timeout=self.config.diagnosis_timeout,
+            max_concurrent=self.config.max_concurrent,
+            max_callback_attempts=self.config.max_callback_attempts,
         )
         await self.worker.start()
 

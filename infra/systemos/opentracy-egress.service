@@ -1,0 +1,20 @@
+[Unit]
+Description=Restricted OpenTracy application egress
+Before=ligado-opentracy-runtime.service ligado-opentracy-gateway.service
+After=network-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/nft -f /etc/ligado-security/opentracy-egress.nft
+ExecStop=/usr/sbin/nft delete table inet ligado_opentracy_egress
+RemainAfterExit=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+CapabilityBoundingSet=CAP_NET_ADMIN
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from knowledge.infrastructure.postgres.cous_repository import CousKnowledgeRepository
 from knowledge.api.cous_schemas import ServiceOrderScopeSchema
+from runtime.diagnosis.limits import QUEUE_LOCK, positive_int, canonical_callback, validate_request_budget
 
 
 def _row_value(row: Any, key: str, default: Any = None) -> Any:
@@ -47,7 +48,7 @@ class DiagnosisRequestSchema(BaseModel):
     callback_endpoint: str = ""
     delivery_mode: Literal["callback", "polling"] = "callback"
     priority: str = "normal"
-    evidence_set: list[dict] = Field(default_factory=list)
+    evidence_set: list[dict] = Field(default_factory=list, max_length=200)
     context: dict = Field(default_factory=dict)
 
 
@@ -57,6 +58,9 @@ class DiagnosisRequestSchema(BaseModel):
             raise ValueError("Callback endpoint required for callback delivery")
         if self.delivery_mode == "polling" and self.callback_endpoint:
             raise ValueError("Polling delivery must not configure a callback")
+        if self.delivery_mode == "callback":
+            canonical_callback(self.callback_endpoint)
+        validate_request_budget(self.model_dump(mode="json"))
         return self
 
 
@@ -108,62 +112,76 @@ def create_diagnosis_router(
         """Enfileira uma requisição de diagnóstico."""
         queued_at = datetime.now(UTC)
         async with repository._pool.acquire() as conn:
-            # A caller must not combine a capture from one machine with another
-            # instance/domain or an unrelated external service order.
-            identity = await conn.fetchrow(
-                """
-                SELECT cs.id FROM capture_sessions cs
-                JOIN instances i ON i.id = cs.instance_id
-                JOIN entities e ON e.id = i.entity_id
-                LEFT JOIN knowledge_documents kd ON kd.id = cs.service_order_document_id
-                WHERE cs.id = $1 AND cs.instance_id = $2 AND e.domain_id = $3
-                  AND ($4::jsonb IS NULL OR (
-                    kd.document_type = 'service_order' AND kd.status <> 'deleted'
-                    AND (kd.metadata -> 'extra' @> $4::jsonb OR kd.metadata @> $4::jsonb)
-                  ))
-                """,
-                payload.capture_session_id, payload.instance_id, payload.domain_id,
-                payload.service_order_scope.model_dump_json() if payload.service_order_scope else None,
-            )
-            if identity is None:
-                raise HTTPException(status_code=409, detail="Capture identity or service order scope mismatch")
-            pos_row = await conn.fetchrow(
-                "SELECT COUNT(*) FROM diagnosis_queue WHERE status = 'pending'"
-            )
-            position = pos_row["count"] if pos_row else 0
-            inserted = await conn.fetchrow(
-                """
-                INSERT INTO diagnosis_queue (
-                    id, capture_session_id, instance_id,
-                    domain_id, callback_endpoint, priority,
-                    evidence_set, context, request_payload,
-                    queued_at, status
+            async with conn.transaction():
+                await conn.execute("SELECT pg_advisory_xact_lock($1)", QUEUE_LOCK)
+                previous = await conn.fetchrow("SELECT * FROM diagnosis_queue WHERE id = $1", payload.correlation_id)
+                if previous is not None:
+                    try:
+                        equivalent = DiagnosisRequestSchema.model_validate(_row_json_value(previous, "request_payload")) == payload
+                    except ValueError:
+                        equivalent = False
+                    if not equivalent:
+                        raise HTTPException(status_code=409, detail="Correlation ID already used for a different request")
+                    return DiagnosisResponseSchema(correlation_id=payload.correlation_id, status=previous["status"],
+                        queued_at=previous["queued_at"].isoformat(), position=0)
+                # A caller must not combine a capture from one machine with another
+                # instance/domain or an unrelated external service order.
+                identity = await conn.fetchrow(
+                    """
+                    SELECT cs.id FROM capture_sessions cs
+                    JOIN instances i ON i.id = cs.instance_id
+                    JOIN entities e ON e.id = i.entity_id
+                    LEFT JOIN knowledge_documents kd ON kd.id = cs.service_order_document_id
+                    WHERE cs.id = $1 AND cs.instance_id = $2 AND e.domain_id = $3
+                      AND ($4::jsonb IS NULL OR (
+                        kd.document_type = 'service_order' AND kd.status <> 'deleted'
+                        AND (kd.metadata -> 'extra' @> $4::jsonb OR kd.metadata @> $4::jsonb)
+                      ))
+                    """,
+                    payload.capture_session_id, payload.instance_id, payload.domain_id,
+                    payload.service_order_scope.model_dump_json() if payload.service_order_scope else None,
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10, 'pending')
-                ON CONFLICT (id) DO NOTHING
-                RETURNING id
-                """,
-                payload.correlation_id, payload.capture_session_id, payload.instance_id,
-                payload.domain_id, payload.callback_endpoint, payload.priority,
-                json.dumps(payload.evidence_set, default=str),
-                json.dumps(payload.context, default=str), payload.model_dump_json(), queued_at,
-            )
-            if inserted is None:
-                previous = await conn.fetchrow(
-                    "SELECT * FROM diagnosis_queue WHERE id = $1", payload.correlation_id,
+                if identity is None:
+                    raise HTTPException(status_code=409, detail="Capture identity or service order scope mismatch")
+                pos_row = await conn.fetchrow(
+                    "SELECT COUNT(*) FROM diagnosis_queue WHERE status IN ('pending', 'processing')"
                 )
-                saved = _row_json_value(previous, "request_payload") if previous else None
-                # Defaults absent from old persisted payloads retain their meaning.
-                try:
-                    equivalent = saved is not None and DiagnosisRequestSchema.model_validate(saved) == payload
-                except ValueError:
-                    equivalent = False
-                if not equivalent:
-                    raise HTTPException(status_code=409, detail="Correlation ID already used for a different request")
-                return DiagnosisResponseSchema(
-                    correlation_id=payload.correlation_id, status=previous["status"],
-                    queued_at=previous["queued_at"].isoformat(), position=0,
+                position = pos_row["count"] if pos_row else 0
+                if position >= positive_int("OPENTRACY_DIAGNOSIS_QUEUE_CAPACITY", 100, 1000):
+                    raise HTTPException(status_code=429, detail="Diagnosis queue is full", headers={"Retry-After": "5"})
+                inserted = await conn.fetchrow(
+                    """
+                    INSERT INTO diagnosis_queue (
+                        id, capture_session_id, instance_id,
+                        domain_id, callback_endpoint, priority,
+                        evidence_set, context, request_payload,
+                        queued_at, status
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10, 'pending')
+                    ON CONFLICT (id) DO NOTHING
+                    RETURNING id
+                    """,
+                    payload.correlation_id, payload.capture_session_id, payload.instance_id,
+                    payload.domain_id, payload.callback_endpoint, payload.priority,
+                    json.dumps(payload.evidence_set, default=str),
+                    json.dumps(payload.context, default=str), payload.model_dump_json(), queued_at,
                 )
+                if inserted is None:
+                    previous = await conn.fetchrow(
+                        "SELECT * FROM diagnosis_queue WHERE id = $1", payload.correlation_id,
+                    )
+                    saved = _row_json_value(previous, "request_payload") if previous else None
+                    # Defaults absent from old persisted payloads retain their meaning.
+                    try:
+                        equivalent = saved is not None and DiagnosisRequestSchema.model_validate(saved) == payload
+                    except ValueError:
+                        equivalent = False
+                    if not equivalent:
+                        raise HTTPException(status_code=409, detail="Correlation ID already used for a different request")
+                    return DiagnosisResponseSchema(
+                        correlation_id=payload.correlation_id, status=previous["status"],
+                        queued_at=previous["queued_at"].isoformat(), position=0,
+                    )
         return DiagnosisResponseSchema(
             correlation_id=payload.correlation_id, status="queued",
             queued_at=queued_at.isoformat(), position=position + 1,
@@ -197,25 +215,30 @@ def create_diagnosis_router(
         correlation_id: UUID,
     ) -> DiagnosisRetrySchema:
         async with repository._pool.acquire() as conn:
-            row = await conn.fetchrow(
-                """
-                UPDATE diagnosis_queue
-                SET status = 'pending',
-                    attempts = 0,
-                    queued_at = NOW(),
-                    last_attempt_at = NULL,
-                    error_message = NULL,
-                    result_payload = NULL,
-                    callback_status = 'pending',
-                    callback_attempts = 0,
-                    callback_last_attempt_at = NULL,
-                    callback_next_attempt_at = NULL,
-                    callback_error = NULL
-                WHERE id = $1 AND status = 'failed'
-                RETURNING id
-                """,
-                correlation_id,
-            )
+            async with conn.transaction():
+                await conn.execute("SELECT pg_advisory_xact_lock($1)", QUEUE_LOCK)
+                count = await conn.fetchval("SELECT COUNT(*) FROM diagnosis_queue WHERE status IN ('pending', 'processing')")
+                if count >= positive_int("OPENTRACY_DIAGNOSIS_QUEUE_CAPACITY", 100, 1000):
+                    raise HTTPException(status_code=429, detail="Diagnosis queue is full", headers={"Retry-After": "5"})
+                row = await conn.fetchrow(
+                    """
+                    UPDATE diagnosis_queue
+                    SET status = 'pending',
+                        attempts = 0,
+                        queued_at = NOW(),
+                        last_attempt_at = NULL,
+                        error_message = NULL,
+                        result_payload = NULL,
+                        callback_status = 'pending',
+                        callback_attempts = 0,
+                        callback_last_attempt_at = NULL,
+                        callback_next_attempt_at = NULL,
+                        callback_error = NULL
+                    WHERE id = $1 AND status = 'failed'
+                    RETURNING id
+                    """,
+                    correlation_id,
+                )
         if row is None:
             raise HTTPException(
                 status_code=409,

@@ -50,6 +50,12 @@ class FakeConnection:
             },
         }
 
+    def transaction(self):
+        return FakeAcquire(self)
+
+    async def fetchval(self, query, *args):
+        return 0
+
     async def fetchrow(self, query, *args):
         if "COUNT" in query:
             return {"count": 0}
@@ -155,7 +161,7 @@ def enqueue_payload():
         "capture_session_id": "00000000-0000-0000-0000-0000000000c1",
         "instance_id": "00000000-0000-0000-0000-0000000000a1",
         "domain_id": "00000000-0000-0000-0000-0000000000b1",
-        "callback_endpoint": "http://127.0.0.1:9999/callback",
+        "callback_endpoint": "http://127.0.0.1:8000/cous/diagnosis/callback",
     }
 
 
@@ -192,7 +198,7 @@ async def test_equivalent_retry_returns_existing_completed_state_without_requeue
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("change", [
-    {"context": {"different": True}}, {"callback_endpoint": "http://127.0.0.1:9998/other"},
+    {"context": {"different": True}}, {"callback_endpoint": "http://127.0.0.1:8010/cous/diagnosis/callback"},
     {"capture_session_id": "00000000-0000-0000-0000-0000000000c2"},
     {"evidence_set": [{"evidence_type": "different"}]},
 ])

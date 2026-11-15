@@ -544,7 +544,7 @@ async def _test_worker_callback_http_error_raises():
 
         async def fetchrow(self, query, *args):
             assert args == (item_id,)
-            return {"callback_endpoint": "http://callback/cous/diagnosis/callback"}
+            return {"callback_endpoint": "http://127.0.0.1:8000/cous/diagnosis/callback"}
 
     class FakePool:
         def acquire(self):
@@ -554,7 +554,7 @@ async def _test_worker_callback_http_error_raises():
         _pool = FakePool()
 
     def handler(request: httpx.Request) -> httpx.Response:
-        assert str(request.url) == "http://callback/cous/diagnosis/callback"
+        assert str(request.url) == "http://127.0.0.1:8000/cous/diagnosis/callback"
         return httpx.Response(409, json={"detail": "not persisted"})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
