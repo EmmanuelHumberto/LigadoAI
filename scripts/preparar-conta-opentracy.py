@@ -122,7 +122,7 @@ def main():
     for parent in (Path('/opt/ligado-opentracy'),TOP,Path('/var/cache/ligado-opentracy')):
         if parent.exists():assert not parent.is_symlink() and parent.stat().st_uid==0
     for directory in [release,deployment,work,home,cache]:directory.mkdir(parents=True,mode=0o750)
-    release.parent.chmod(0o755);release.parent.parent.chmod(0o755);TOP.chmod(0o755)
+    release.chmod(0o755);release.parent.chmod(0o755);release.parent.parent.chmod(0o755);TOP.chmod(0o755)
     with tarfile.open(fileobj=io.BytesIO(git('archive',sha,binary=True))) as archive:
         archive.extractall(release,filter='data')
     for folder in (work,home,cache):os.chown(folder,identity.pw_uid,identity.pw_gid);folder.chmod(0o700)
