@@ -93,3 +93,23 @@ def test_explicit_migrator_rejects_runtime_and_detects_changed_migration(monkeyp
             await migrator.migrate('synthetic')
         assert 'CREATE TABLE changed(id integer)' not in statements
     asyncio.run(exercise())
+
+
+def test_publication_respects_gateway_and_runtime_credential_scopes():
+    import importlib.util
+    from pathlib import Path
+    script = Path(__file__).resolve().parents[2] / 'scripts/publicar-correcao-schema-runtime.py'
+    spec = importlib.util.spec_from_file_location('schema_publisher_test', script)
+    publisher = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(publisher)
+    calls = []
+    def status(port, path, token=None):
+        calls.append((port, token))
+        assert path.startswith('/knowledge/jobs/')
+        expected = 'synthetic-knowledge' if port == 8001 else 'synthetic-integration'
+        return 200 if token == expected else 401
+    activation = SimpleNamespace(http_status=status)
+    publisher.verify_knowledge_reads(activation,
+        {'OPENTRACY_KNOWLEDGE_AUTH_TOKEN': 'synthetic-knowledge'},
+        {'SYSTEMOS_COGNITIVE_TOKEN': 'synthetic-integration'})
+    assert calls == [(8001, 'synthetic-knowledge'), (8002, 'synthetic-integration'), (8002, None)]

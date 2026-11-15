@@ -14,6 +14,10 @@ Depois da publicação de `7b5516d56169020cb6b5d9003a23221cfda4dedf`, o GET aute
 
 ## Validação e publicação
 
-122 testes de conhecimento, medições, ciclo de vida e ativação passaram. O esquema de produção foi validado pelos dois adaptadores corrigidos em transações somente leitura, usando a credencial de diagnóstico existente. O teste da credencial restrita real será obrigatório no ExecStartPre da publicação.
+123 testes de conhecimento, medições, ciclo de vida e ativação passaram. O esquema de produção foi validado pelos dois adaptadores corrigidos em transações somente leitura, usando a credencial de diagnóstico existente. O teste da credencial restrita real será obrigatório no ExecStartPre da publicação.
 
 Estado deste registro: **correção preparada; ainda não publicada**. É necessário sudo no terminal Linux para atualizar as unidades e a release root-owned. Não houve migração, alteração de OS, nova cobrança ou reinicialização do Cous/firmware nesta correção. A análise completa da OS 1159 precisa ser confirmada depois da publicação; leitura de job/configuração isoladamente não prova a inferência completa.
+
+## Primeira tentativa de publicação
+
+A tentativa da revisão `b00421c2b8b4175ddc17a2ea445e8b57d8c91bde` reverteu automaticamente para `7b5516d56169020cb6b5d9003a23221cfda4dedf`, preservando o estado. A inicialização dos adaptadores no sandbox/credencial restrita e a leitura do job pelo runtime passaram. O publicador usou indevidamente o token de conhecimento na verificação do gateway. O gateway exige `SYSTEMOS_COGNITIVE_TOKEN`, trocando-o internamente pelo token apropriado ao acessar o runtime. Essa checagem foi corrigida e ganhou teste com tokens distintos. As regras de autenticação da aplicação não foram alteradas. Nova publicação ainda pendente de execução privilegiada.

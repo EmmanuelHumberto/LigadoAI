@@ -29,6 +29,17 @@ def load(name, relative):
     return module
 
 
+def verify_knowledge_reads(activation, runtime_values, gateway_values):
+    """The gateway integration token and runtime knowledge token have distinct scopes."""
+    path = '/knowledge/jobs/7385f41d-acee-4f0d-a0e7-b7f358210b41'
+    knowledge = runtime_values['OPENTRACY_KNOWLEDGE_AUTH_TOKEN']
+    integration = gateway_values['SYSTEMOS_COGNITIVE_TOKEN']
+    assert knowledge and integration
+    assert activation.http_status(8001, path, knowledge) == 200
+    assert activation.http_status(8002, path, integration) == 200
+    assert activation.http_status(8002, path) == 401
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--expected-commit', required=True)
@@ -114,8 +125,7 @@ def main():
         run(['systemctl', 'start', UNITS[1]])
         activation.health(8002)
         activation.verify_gateway_contract(8002, token, knowledge)
-        assert activation.http_status(8002, known_job, knowledge) == 200
-        assert activation.http_status(8002, known_job) == 401
+        verify_knowledge_reads(activation, values[0], values[1])
         assert run(['systemctl', 'is-active', 'ligado-opentracy-egress']) == 'active'
         replace(MARKER, (sha + '\n').encode(), 0o644)
         result = dict(result='PUBLISHED', sourceCommit=sha, previousSource=PREVIOUS,
