@@ -115,3 +115,25 @@ def test_runtime_unit_requires_database_probe_inside_same_sandbox(activation):
     assert 'User=ligado-opentracy' in text
     assert 'ProtectHome=yes' in text and 'ProtectSystem=strict' in text
     assert '@' not in text
+
+
+def test_gateway_storage_import_uses_isolated_state_without_database_secrets(activation, tmp_path):
+    import subprocess
+    import sys
+    work = tmp_path / 'state'; work.mkdir()
+    runtime = dict(OPENTRACY_STATE_ROOT=str(work), BACKEND_API_KEYS='synthetic-operator',
+                   OPENTRACY_RUNTIME_INTERNAL_TOKEN='synthetic-runtime',
+                   OPENTRACY_KNOWLEDGE_DATABASE_URL='postgres://must-not-reach-gateway',
+                   ANTHROPIC_API_KEY='must-not-reach-gateway')
+    env = activation.gateway_environment(runtime, work)
+    assert not any('DATABASE_URL' in key for key in env)
+    assert 'ANTHROPIC_API_KEY' not in env
+    assert env['OPENTRACY_AGENTS_ROOT'] == str(work / 'agents')
+    # Exercise the actual Python module imported by the gateway's ExecStartPre,
+    # instead of checking only that the configuration key exists.
+    root = Path(__file__).resolve().parents[2]
+    result = subprocess.run([sys.executable, '-c',
+        'import ledger.writer; print(ledger.writer._PROJECT_ROOT.resolve())'],
+        env={**env, 'PYTHONPATH': str(root / 'storage_packages') + ':' + str(root)},
+        cwd=tmp_path, capture_output=True, text=True, check=True)
+    assert result.stdout.strip() == str(work.resolve())

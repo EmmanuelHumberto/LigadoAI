@@ -52,6 +52,18 @@ def effective_environment(prep):
     return values
 
 
+def gateway_environment(runtime, work):
+    """Pass explicit state context, without giving the gateway database credentials."""
+    values = {key: runtime[key] for key in (
+        'BACKEND_API_KEYS', 'SYSTEMOS_COGNITIVE_TOKEN', 'OPENTRACY_RUNTIME_INTERNAL_TOKEN',
+        'OPENTRACY_RUNTIME_SECURITY', 'OPENTRACY_KNOWLEDGE_AUTH_TOKEN', 'OPENTRACY_COUS_V3_AUTH_TOKEN'
+    ) if key in runtime}
+    values.update(RUNTIME_URL='http://127.0.0.1:8001', PORT='18012',
+                  OPENTRACY_STATE_ROOT=str(work), OPENTRACY_AGENTS_ROOT=str(work / 'agents'),
+                  OPENTRACY_SOURCE_COMMIT=TESTED)
+    return values
+
+
 def queue_idle(values):
     # Only SELECT inside a read-only transaction; no queue consumption or inference.
     code = """import asyncio,os,json
@@ -240,9 +252,7 @@ def main():
         runtime = dict(values)
         runtime.update(OPENTRACY_STATE_ROOT=str(work), OPENTRACY_RUNTIME_HOST='127.0.0.1', OPENTRACY_RUNTIME_PORT='8001',
                        OPENTRACY_RUNTIME_SECURITY='required', OPENTRACY_SOURCE_COMMIT=TESTED, OPENTRACY_DIAGNOSIS_WORKER_ENABLED='0')
-        gateway = {key: runtime[key] for key in ('BACKEND_API_KEYS', 'SYSTEMOS_COGNITIVE_TOKEN', 'OPENTRACY_RUNTIME_INTERNAL_TOKEN',
-                    'OPENTRACY_RUNTIME_SECURITY', 'OPENTRACY_KNOWLEDGE_AUTH_TOKEN', 'OPENTRACY_COUS_V3_AUTH_TOKEN') if key in runtime}
-        gateway.update(RUNTIME_URL='http://127.0.0.1:8001', PORT='18012', OPENTRACY_AGENTS_ROOT=str(work / 'agents'), OPENTRACY_SOURCE_COMMIT=TESTED)
+        gateway = gateway_environment(runtime, work)
         for path, env in zip(envs, (runtime, gateway)):
             prep.private_file(path, prep.env_bytes(env), identity.pw_gid)
         template = (release / 'infra/systemos/opentracy-isolated.service.in').read_text()
