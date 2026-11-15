@@ -15,6 +15,7 @@ import pwd
 import re
 import secrets
 import shlex
+import signal
 import shutil
 import subprocess
 import time
@@ -221,6 +222,9 @@ def main():
     database_probe.chmod(0o644)
     envs = [Path('/etc/ligado-opentracy') / ('production-' + component + '-' + sha[:12] + '.env') for component in ('runtime', 'gateway')]
     assert not any(path.exists() or path.is_symlink() for path in envs)
+    def interrupted(signum, frame):
+        raise KeyboardInterrupt('Activation interrupted; preserve the handover boundary')
+    signal.signal(signal.SIGTERM, interrupted)
     committed = False
     changed_live = False
     installed_units = []
@@ -264,15 +268,15 @@ def main():
         queue_idle(values)
         # Commit the handover before reopening writers. From this point a failure
         # must preserve the isolated state; never silently start stale legacy data.
-        prep.private_file(MARKER, (TESTED + '\n').encode())
-        committed = True
-        MARKER.chmod(0o644)
         for path in drops:
             prep.private_file(path, ('[Unit]\nConditionPathExists=!' + str(MARKER) + '\n').encode())
             path.chmod(0o644)
             installed_drops.append(path)
         prep.user_systemctl('daemon-reload')
         prep.user_systemctl('disable', *OLD)
+        prep.private_file(MARKER, (TESTED + '\n').encode())
+        committed = True
+        MARKER.chmod(0o644)
         system('enable', *NEW)
         # Restore the explicitly configured worker policy only after ownership commits.
         system('stop', NEW[0])
@@ -292,13 +296,17 @@ def main():
                   'authenticatedRuntimeRead': True, 'authenticatedGatewayRead': True, 'anonymousDenied': True,
                   'legacyWritersDisabled': True, 'cousRestarted': False, 'financialOperationExecuted': False,
                   'executedAt': datetime.datetime.now(datetime.timezone.utc).isoformat()}
-    except Exception:
+    except BaseException:
         if not committed:
             for unit in reversed(NEW):
                 subprocess.run(['systemctl', 'stop', unit], capture_output=True, timeout=30)
             for path in installed_units:
                 path.unlink()
             system('daemon-reload')
+            for path in installed_drops:
+                path.unlink()
+            prep.user_systemctl('daemon-reload')
+            prep.user_systemctl('enable', *OLD)
             if changed_live:
                 prep.user_systemctl('start', OLD[0]); health(8001)
                 prep.user_systemctl('start', OLD[1]); health(8002)
