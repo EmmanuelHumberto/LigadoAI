@@ -1,0 +1,16 @@
+[Unit]
+Description=Restrict OpenTracy PostgreSQL to loopback without changing other firewall tables
+DefaultDependencies=no
+After=local-fs.target
+Conflicts=shutdown.target
+Wants=network-pre.target
+Before=network-pre.target postgresql.service @PG_INSTANCES@ shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/ligado-security/opentracy-postgres-local-only.nft
+ExecStop=/usr/sbin/nft delete table inet ligado_opentracy_postgres
+
+[Install]
+WantedBy=multi-user.target

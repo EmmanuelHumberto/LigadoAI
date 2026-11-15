@@ -1,0 +1,6 @@
+table inet ligado_opentracy_postgres {
+  chain local_only {
+    type filter hook input priority -15; policy accept;
+    iifname != "lo" tcp dport 5432 counter reject with tcp reset comment "ligado-opentracy-postgres-local-only"
+  }
+}
