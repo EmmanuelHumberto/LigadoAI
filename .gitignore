@@ -92,3 +92,6 @@ agent/onboarding_session.json
 .run/
 __pycache__/
 *.pyc
+
+# Local dependency symlinks must also stay out of source control.
+/backend/node_modules
