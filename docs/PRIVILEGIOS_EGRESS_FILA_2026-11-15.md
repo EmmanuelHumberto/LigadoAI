@@ -1,6 +1,6 @@
 # OpenTracy: database privileges, outbound connections and diagnosis capacity
 
-Status: implemented and tested in source; production publication requires the root command and must not be inferred from tests alone.
+Status: PUBLISHED and independently verified in production on November 15, 2026. Source revision: 7b5516d56169020cb6b5d9003a23221cfda4dedf.
 
 ## Findings established from the actual deployment
 
@@ -50,3 +50,13 @@ On failure, it restores original source links and units against the SAME state d
 On 2026-11-15T05:26:09.076527+00:00, script revision 6955127c5f7cbb99c1054104ffb445fa40e7b4fd added only permitopen=127.0.0.1:3001 to the existing restricted ligadoassist SSH key. authorized_keys SHA256 changed from 6f6fcd6060d54670dcabf863f116592e99ab68900b68bd5406c3fdac34146bcb to 958ee848976bdfab91580bfa6ada4c57780b45f452eda14a0f6caaefa93ddf02. No sshd or production-tunnel restart occurred. The Git source and script hash were verified before execution and the private receipt/backups retained on the VPS.
 
 A separate temporary local forward on 13311 verified the actual restricted key and the authenticated cognitive read of OS 1156 with HTTP 200, then closed. This proves the new SSH destination without opening a permanent local port yet. Linux database role changes, UID egress enforcement, production tunnel drop-in and new diagnosis limits have NOT yet been activated. The root publisher performs those actions only when the operator executes the exact pushed command.
+
+## Linux publication confirmed
+
+The saved administrative output confirmed PUBLISHED at 2026-11-15T14:09:21.062237+00:00 (11:09:21 Sao Paulo), source 7b5516d56169020cb6b5d9003a23221cfda4dedf, previous source ff858d329c66049f97186f29ef621de12329e3ca. The existing writable state directory was preserved. The published limits are two active diagnoses, queue capacity 100 and eight callback attempts. The dedicated runtime/gateway services and persistent egress guard were independently observed active/enabled; both health endpoints returned 200 and anonymous configuration reads returned 401. Legacy user writers remained disabled with PID zero.
+
+An independent read-only SQL audit confirmed both ligadoai and opentracy_runtime have CREATEDB=false, no superuser/CREATEROLE/replication/BYPASSRLS flags. The new role has a session cap of 24, owns zero public objects and cannot CREATE in public. An actual application connection using opentracy_runtime was present. The existing queue still contained exactly 20 completed polling jobs and 36 completed/delivered callback jobs; no test job or analysis was inserted in production. Startup passed the actual restricted-role DML/administrative-denial and UID egress probes.
+
+The new API forward listens only on 127.0.0.1:13301; runtime/gateway remain on loopback 8001/8002. The real SystemOS API container in the VPS performed its authenticated gateway-to-runtime read with HTTP 200. The actual Cous client read configuration successfully and reported backend/runtime healthy. No Cous/firmware restart, inference, payment or Drive synchronization occurred. The source marker matches the published revision.
+
+This completes activation of the database, outbound-network and queue guards for OpenTracy. A host reboot and real operator-requested analysis are still separate checks. The existing Cous/admin database owner and PUBLIC CONNECT/TEMP/catalog visibility remain explicitly outside claims of complete privilege elimination; new schemas or outbound integrations require policy review.
