@@ -1,0 +1,50 @@
+[Unit]
+Description=@DESCRIPTION@
+After=network-online.target
+
+[Service]
+Type=simple
+User=ligado-opentracy
+Group=ligado-opentracy
+WorkingDirectory=@WORKDIR@
+EnvironmentFile=@ENVFILE@
+Environment=PYTHONPATH=@RELEASE@/storage_packages:@RELEASE@
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=HOME=@HOME@
+Environment=XDG_CACHE_HOME=@CACHE@
+Environment=HF_HOME=@RELEASE@/.hf
+Environment=HF_HUB_OFFLINE=1
+Environment=TRANSFORMERS_OFFLINE=1
+ExecStartPre=@RELEASE@/.venv/bin/python @RELEASE@/scripts/verificar-conta-isolada.py --release @RELEASE@ --work @WORK@ --report @WORK@/@REPORT@
+ExecStart=@EXEC@
+BindReadOnlyPaths=/home/hiatus/Projetos/ligadotattoo/OpenTracy/.venv:@RELEASE@/.venv
+BindReadOnlyPaths=/home/hiatus/Projetos/ligadotattoo/OpenTracy/backend/node_modules:@RELEASE@/backend/node_modules
+BindReadOnlyPaths=/home/hiatus/.cache/huggingface/hub:@RELEASE@/.hf/hub
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectProc=invisible
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=yes
+UMask=0077
+LimitCORE=0
+ReadWritePaths=@WORK@ @HOME@ @CACHE@
+InaccessiblePaths=-/run/docker.sock -/var/run/docker.sock -/run/containerd/containerd.sock -/run/user/1000
+@EXTRA_DENY@
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
